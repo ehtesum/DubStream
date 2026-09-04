@@ -1,17 +1,14 @@
 """
 Tool to generate A/B listening test audio packages for human voice evaluation.
 
-Exports:
-  Sample A: Original actor speech reference
-  Sample B: Neural cloned Finnish speech
-  Sample C: Standard Edge-TTS Finnish speech
-  Sample D: Duration-matched Finnish speech
+Attaches accurate metadata identifying the actual engine used.
+If neural cloning is unavailable, labels the sample NEURAL_CLONE_UNAVAILABLE.
 """
 import sys
+import json
 from pathlib import Path
 import numpy as np
 
-# Ensure parent directory is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from audio.buffer import AudioBuffer
@@ -29,20 +26,41 @@ def generate_ab_test_package(output_dir: Path):
     sample_a_buf = AudioBuffer(samples=sample_a_data, sample_rate=16000)
     (output_dir / "sample_A_original_actor.wav").write_bytes(sample_a_buf.to_wav_bytes())
 
-    # 2. Sample B: Neural cloned speech
+    # 2. Sample B: Neural cloned speech or NEURAL_CLONE_UNAVAILABLE
     engine = NeuralVoiceCloningEngine()
     profile = SpeakerProfile(speaker_id="AB_TEST", gender="male", pitch_str="+0Hz")
-    sample_b_buf = engine.synthesize("Tämä on A B kuuntelutestin näyte B.", profile)
-    (output_dir / "sample_B_neural_clone.wav").write_bytes(sample_b_buf.to_wav_bytes())
+
+    res_b = engine.synthesize("Tämä on A B kuuntelutestin näyte B.", profile)
+    sample_b_buf = res_b[0] if isinstance(res_b, tuple) else res_b
+    syn_prov = res_b[1] if isinstance(res_b, tuple) else None
+
+    is_neural_available = syn_prov and not syn_prov.fallback_used
+    sample_b_filename = "sample_B_neural_clone.wav" if is_neural_available else "sample_B_NEURAL_CLONE_UNAVAILABLE.wav"
+    (output_dir / sample_b_filename).write_bytes(sample_b_buf.to_wav_bytes())
 
     # 3. Sample C: Standard Edge TTS
-    sample_c_buf = engine.edge.synthesize("Tämä on A B kuuntelutestin näyte C.", profile)
+    res_c = engine.edge.synthesize("Tämä on A B kuuntelutestin näyte C.", profile)
+    sample_c_buf = res_c[0] if isinstance(res_c, tuple) else res_c
     (output_dir / "sample_C_edge_tts.wav").write_bytes(sample_c_buf.to_wav_bytes())
 
     # 4. Sample D: Duration matched
     stretcher = TimeStretcher()
     sample_d_buf = stretcher.stretch_audio_buffer(sample_c_buf, target_duration=2.2)
     (output_dir / "sample_D_duration_matched.wav").write_bytes(sample_d_buf.to_wav_bytes())
+
+    # Save manifest metadata
+    manifest = {
+        "sample_A": {"description": "Original actor speech reference", "engine": "Reference Recording"},
+        "sample_B": {
+            "description": "Neural cloned speech (F5-TTS / XTTS v2)" if is_neural_available else "Neural cloning model weights unavailable",
+            "engine": syn_prov.engine_used if syn_prov else "EdgeTTS",
+            "status": "LOADED" if is_neural_available else "UNAVAILABLE",
+        },
+        "sample_C": {"description": "Standard Edge-TTS Finnish speech", "engine": "EdgeTTS"},
+        "sample_D": {"description": "Duration-matched Finnish speech (WSOLA)", "engine": "EdgeTTS + WSOLA"},
+        "human_evaluation_status": "NOT YET HUMAN EVALUATED",
+    }
+    (output_dir / "ab_test_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     print(f"[A/B Test Generator] Successfully created samples A, B, C, D in {output_dir}")
 

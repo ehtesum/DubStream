@@ -2,7 +2,7 @@
 Pipeline Orchestrator for DubStream v2.0.
 
 Provides Preview (fast STT -> Translation -> Edge TTS) and Production (Full VAD -> Speaker Profiling -> STT -> Spoken Finnish Rewriting -> Voice Cloning -> WSOLA -> BGM Mixing -> Quality Gate) pipelines.
-Includes full runtime diagnostics reporting.
+Includes full runtime diagnostics & SynthesisResult provenance reporting.
 """
 from dataclasses import dataclass, field
 import base64
@@ -23,6 +23,7 @@ from voices.cloning import NeuralVoiceCloningEngine
 from sync.duration import UtteranceDurationMatcher
 from cache.store import PipelineCache
 from pipeline.quality import QualityGate, QualityReport
+from validation.schema import SynthesisResult
 
 
 class DubStreamOrchestrator:
@@ -52,7 +53,10 @@ class DubStreamOrchestrator:
         finnish_text = self.translator.translate(first_seg.text)
         speaker_profile = self.diarizer.get_or_create_profile("SPEAKER_00")
 
-        gen_buf = self.voice_engine.edge.synthesize(finnish_text, speaker_profile)
+        gen_res = self.voice_engine.edge.synthesize(finnish_text, speaker_profile)
+        gen_buf = gen_res[0] if isinstance(gen_res, tuple) else gen_res
+        syn_provenance = gen_res[1] if isinstance(gen_res, tuple) else None
+
         diag = self.voice_engine.get_diagnostics(speaker_profile)
         diag["DIARIZATION_MODE"] = "fallback_single_speaker"
 
@@ -64,6 +68,7 @@ class DubStreamOrchestrator:
             "dubbed_text": finnish_text,
             "dubbed_audio_bytes": gen_buf.to_wav_bytes(),
             "diagnostics": diag,
+            "synthesis_provenance": syn_provenance,
         }
 
     def run_production_pipeline(self, audio_buf: AudioBuffer, target_lang: str = "fi") -> dict:
@@ -98,9 +103,11 @@ class DubStreamOrchestrator:
         finnish_text = self.translator.translate(first_seg.text, speaker_profile=profile)
 
         # 6. Neural Voice Synthesis
-        raw_gen_buf = self.voice_engine.synthesize(
+        synth_res = self.voice_engine.synthesize(
             finnish_text, speaker_profile=profile, target_duration=target_dur, prosody=prosody
         )
+        raw_gen_buf = synth_res[0] if isinstance(synth_res, tuple) else synth_res
+        syn_provenance = synth_res[1] if isinstance(synth_res, tuple) else None
 
         # 7. Duration Matching (Hierarchy)
         matched_buf, final_text, tier_used = self.duration_matcher.process_utterance(
@@ -129,4 +136,5 @@ class DubStreamOrchestrator:
             "quality_report": q_report,
             "dubbed_audio_bytes": final_mix_buf.to_wav_bytes(),
             "diagnostics": diag,
+            "synthesis_provenance": syn_provenance,
         }

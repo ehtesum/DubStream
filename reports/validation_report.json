@@ -1,22 +1,148 @@
 {
-  "total_processing_time_sec": 5.288,
-  "number_of_speakers": 1,
-  "speaker_id": null,
-  "clone_engine_used": null,
-  "fallback_count": 0,
-  "translation_backend": "GoogleTranslator + Puhekieli",
-  "duration_statistics": {
-    "original_start": null,
-    "original_end": null,
+  "metadata": {
+    "validation_run_id": "2026-09-04T18:32:17Z_f654fa1",
+    "timestamp_utc": "2026-09-04T18:32:17Z",
+    "git_commit_sha": "f654fa1",
+    "git_branch": "v2",
+    "python_version": "3.13.0",
+    "os_platform": "Windows 11",
+    "gpu_available": false,
+    "torch_version": "2.14.0+cpu",
+    "whisper_version": "20250625",
+    "edge_tts_version": "6.1.0"
+  },
+  "synthesis_result": {
+    "engine_requested": "F5-TTS / XTTS_v2",
+    "engine_used": "EdgeTTS",
+    "model_name": "EdgeTTS",
+    "checkpoint": "edge-tts-fi-FI-NooraNeural",
+    "model_version": "6.1.0",
+    "reference_audio_used": null,
+    "reference_text_used": null,
+    "target_language": "fi",
+    "fallback_used": true,
+    "fallback_reason": "Neural voice cloning model weights (F5-TTS / XTTS v2) unavailable; defaulted to EdgeTTS",
+    "synthesis_duration_sec": 6.747,
+    "output_duration_sec": 3.0,
+    "success": true
+  },
+  "quality_gate": {
+    "passed_gate": false,
+    "runtime_success": false,
+    "quality_success": false,
+    "failed_criteria": [
+      "neural_voice_cloning_weights_unavailable (used EdgeTTS fallback)",
+      "pyannote_diarization_unavailable (used single_speaker fallback)",
+      "demucs_neural_separation_unavailable (used bandpass filter fallback)"
+    ],
     "duration_error_sec": 0.0,
-    "tier_applied": null
-  },
-  "loudness_statistics": {
     "loudness_error_db": 0.0,
-    "clipping_detected": false
+    "clipping_detected": false,
+    "speaker_similarity_metric": "UNAVAILABLE"
   },
-  "quality_gate_passed": false,
-  "failed_segments": 0,
-  "regeneration_count": 0,
-  "diagnostics": {}
+  "components": [
+    {
+      "name": "Audio Upload & Security",
+      "status": "PASS",
+      "details": "Sanitized via werkzeug.utils.secure_filename & path checks",
+      "evidence": "app.py"
+    },
+    {
+      "name": "Audio Buffer Abstraction",
+      "status": "PASS",
+      "details": "Canonical float32 AudioBuffer container with WSOLA resampling",
+      "evidence": "audio/buffer.py"
+    },
+    {
+      "name": "Speech Quality VAD",
+      "status": "PASS",
+      "details": "SNR, spectral flatness, and clipping check evaluation",
+      "evidence": "audio/vad.py"
+    },
+    {
+      "name": "F0 Pitch Analysis",
+      "status": "PASS",
+      "details": "YIN autocorrelation frame analysis & octave filtering",
+      "evidence": "speech/prosody.py"
+    },
+    {
+      "name": "Speaker Diarization",
+      "status": "FALLBACK",
+      "details": "Pyannote unconfigured; defaulted to SPEAKER_00 single speaker mode",
+      "evidence": "speech/diarization.py"
+    },
+    {
+      "name": "Whisper STT",
+      "status": "PASS",
+      "details": "Whisper STT transcription with segment/word timing",
+      "evidence": "speech/stt.py"
+    },
+    {
+      "name": "Finnish Translation",
+      "status": "PASS",
+      "details": "deep-translator GoogleTranslator backend",
+      "evidence": "translation/translator.py"
+    },
+    {
+      "name": "Spoken Finnish Rewriting",
+      "status": "PASS",
+      "details": "FinnishDialogueTransformer rule corpus (100% test pass rate)",
+      "evidence": "translation/finnish.py"
+    },
+    {
+      "name": "Neural Voice Cloning",
+      "status": "FALLBACK",
+      "details": "F5-TTS/XTTS weights uninstalled; defaulted to EdgeTTS with pitch offset",
+      "evidence": "voices/cloning.py"
+    },
+    {
+      "name": "Prosody Transfer",
+      "status": "PARTIAL",
+      "details": "Pitch offset (+NHz/-NHz) transferred to EdgeTTS; contour pending neural model",
+      "evidence": "speech/prosody.py"
+    },
+    {
+      "name": "WSOLA Time Stretching",
+      "status": "PASS",
+      "details": "Pitch-preserving WSOLA algorithm (0.80x - 1.25x rate control)",
+      "evidence": "sync/timestretch.py"
+    },
+    {
+      "name": "Duration Matching",
+      "status": "PASS",
+      "details": "4-tier matching hierarchy (0-5%, 5-12%, 12-20%, >20% text contraction)",
+      "evidence": "sync/duration.py"
+    },
+    {
+      "name": "Dialogue Separation",
+      "status": "FALLBACK",
+      "details": "Demucs uninstalled; defaulted to bandpass vocal isolation filter",
+      "evidence": "audio/separator.py"
+    },
+    {
+      "name": "BGM Ducking & Mixing",
+      "status": "PASS",
+      "details": "AudioMixer envelope ducking (-6 dB) during dialogue frames",
+      "evidence": "audio/mixer.py"
+    },
+    {
+      "name": "Loudness Normalization",
+      "status": "PASS",
+      "details": "LoudnessManager EBU R128 -24 LUFS gain normalization",
+      "evidence": "audio/loudness.py"
+    },
+    {
+      "name": "Pipeline Cache",
+      "status": "PASS",
+      "details": "PipelineCache SHA-256 store",
+      "evidence": "cache/store.py"
+    },
+    {
+      "name": "Quality Gate",
+      "status": "FAIL",
+      "details": "Runtime success: False, Production quality: False",
+      "evidence": "pipeline/quality.py"
+    }
+  ],
+  "project_classification": "ADVANCED PROTOTYPE / ENGINEERING PRE-PRODUCTION"
 }

@@ -1,0 +1,20 @@
+{
+  "sample_A": {
+    "description": "Original actor speech reference",
+    "engine": "Reference Recording"
+  },
+  "sample_B": {
+    "description": "Neural cloning model weights unavailable",
+    "engine": "EdgeTTS",
+    "status": "UNAVAILABLE"
+  },
+  "sample_C": {
+    "description": "Standard Edge-TTS Finnish speech",
+    "engine": "EdgeTTS"
+  },
+  "sample_D": {
+    "description": "Duration-matched Finnish speech (WSOLA)",
+    "engine": "EdgeTTS + WSOLA"
+  },
+  "human_evaluation_status": "NOT YET HUMAN EVALUATED"
+}

@@ -19,7 +19,6 @@ class TestVoiceIdentityIntegration(unittest.TestCase):
         self.engine = NeuralVoiceCloningEngine()
 
     def test_voice_identity_pipeline(self):
-        # Create synthetic 2-second reference audio buffer (220 Hz sine simulating male voice)
         t = np.linspace(0, 2.0, 32000, endpoint=False, dtype=np.float32)
         ref_samples = (0.4 * np.sin(2 * np.pi * 220.0 * t)).astype(np.float32)
         ref_buf = AudioBuffer(samples=ref_samples, sample_rate=16000, channels=1)
@@ -36,18 +35,19 @@ class TestVoiceIdentityIntegration(unittest.TestCase):
         )
 
         target_text = "Tämä on suomenkielinen äänikloonaustesti."
-        gen_buf = self.engine.synthesize(target_text, speaker_profile=profile)
+        res = self.engine.synthesize(target_text, speaker_profile=profile)
+        gen_buf = res[0] if isinstance(res, tuple) else res
+        syn_prov = res[1] if isinstance(res, tuple) else None
+
         diag = self.engine.get_diagnostics(profile)
 
         self.assertIsNotNone(gen_buf)
         self.assertGreater(gen_buf.duration, 0.0)
 
-        # Calculate speaker embedding cosine similarity if model installed
         speaker_similarity = "UNAVAILABLE"
         try:
             import torch
             import speechbrain  # type: ignore
-            # Compute real speaker embedding similarity...
         except ImportError:
             speaker_similarity = "UNAVAILABLE"
 
@@ -55,15 +55,14 @@ class TestVoiceIdentityIntegration(unittest.TestCase):
             "speaker_similarity": speaker_similarity,
             "reference_duration": round(ref_buf.duration, 2),
             "generated_duration": round(gen_buf.duration, 2),
-            "synthesis_model": diag.get("MODEL_NAME"),
+            "synthesis_model": syn_prov.model_name if syn_prov else diag.get("MODEL_NAME"),
             "sample_rate": gen_buf.sample_rate,
-            "fallback_status": diag.get("VOICE_ENGINE_FALLBACK"),
+            "fallback_status": syn_prov.fallback_used if syn_prov else diag.get("VOICE_ENGINE_FALLBACK"),
         }
 
         self.assertIn("synthesis_model", report)
         self.assertIn("fallback_status", report)
 
-        # Cleanup
         try:
             ref_file.unlink(missing_ok=True)
         except Exception:

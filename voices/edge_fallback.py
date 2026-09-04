@@ -1,9 +1,10 @@
 """
 EdgeTTSAdapter for DubStream v2.0.
 
-Wraps Microsoft Edge Neural TTS as a standard VoiceEngine adapter returning AudioBuffer objects.
+Wraps Microsoft Edge Neural TTS as a standard VoiceEngine adapter returning (AudioBuffer, SynthesisResult).
 """
 import io
+import time
 import asyncio
 import numpy as np
 
@@ -11,6 +12,7 @@ from audio.buffer import AudioBuffer
 from voices.base import VoiceEngine
 from voices.profile import SpeakerProfile
 from speech.prosody import ProsodyProfile
+from validation.schema import SynthesisResult
 
 
 class EdgeTTSAdapter(VoiceEngine):
@@ -25,9 +27,27 @@ class EdgeTTSAdapter(VoiceEngine):
         speaker_profile: SpeakerProfile,
         target_duration: float | None = None,
         prosody: ProsodyProfile | None = None,
-    ) -> AudioBuffer:
+    ) -> tuple[AudioBuffer, SynthesisResult]:
+        t0 = time.time()
+        ref_path = str(speaker_profile.reference_audio) if (speaker_profile and speaker_profile.reference_audio) else None
+
         if not text or not text.strip():
-            return AudioBuffer(samples=np.zeros(24000, dtype=np.float32), sample_rate=24000)
+            empty_buf = AudioBuffer(samples=np.zeros(24000, dtype=np.float32), sample_rate=24000)
+            res = SynthesisResult(
+                audio_buffer=empty_buf,
+                engine_requested="EdgeTTS",
+                engine_used="EdgeTTS",
+                model_name="EdgeTTS",
+                checkpoint="edge-tts-fi-FI-NooraNeural",
+                reference_audio_used=ref_path,
+                target_language=self.default_lang,
+                fallback_used=False,
+                fallback_reason="",
+                synthesis_duration_sec=round(time.time() - t0, 3),
+                output_duration_sec=0.0,
+                success=True,
+            )
+            return empty_buf, res
 
         import edge_tts
 
@@ -65,16 +85,32 @@ class EdgeTTSAdapter(VoiceEngine):
         finally:
             loop.close()
 
+        out_buf = AudioBuffer(samples=np.zeros(24000, dtype=np.float32), sample_rate=24000)
         if mp3_bytes and len(mp3_bytes) > 0:
             try:
-                return AudioBuffer.from_wav_bytes(mp3_bytes)
+                out_buf = AudioBuffer.from_wav_bytes(mp3_bytes)
             except Exception:
-                # If decoded from raw MP3 bytes fails, decode via numpy or pcm fallback
                 try:
                     int_samples = np.frombuffer(mp3_bytes, dtype=np.int16)
                     float_samples = int_samples.astype(np.float32) / 32768.0
-                    return AudioBuffer(samples=float_samples, sample_rate=24000)
+                    out_buf = AudioBuffer(samples=float_samples, sample_rate=24000)
                 except Exception:
                     pass
 
-        return AudioBuffer(samples=np.zeros(24000, dtype=np.float32), sample_rate=24000)
+        t_total = time.time() - t0
+        res = SynthesisResult(
+            audio_buffer=out_buf,
+            engine_requested="EdgeTTS",
+            engine_used="EdgeTTS",
+            model_name="EdgeTTS",
+            checkpoint=voice,
+            reference_audio_used=ref_path,
+            target_language=self.default_lang,
+            fallback_used=False,
+            fallback_reason="",
+            synthesis_duration_sec=round(t_total, 3),
+            output_duration_sec=round(out_buf.duration, 2),
+            success=True,
+        )
+
+        return out_buf, res

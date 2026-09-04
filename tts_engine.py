@@ -8,15 +8,17 @@ Fallback chain:
   4. pyttsx3 (System offline TTS)
   5. Synthetic Silence AudioBuffer (prevents pipeline breakage on complete offline/network failure)
 
-Integrates canonical AudioBuffer for unified audio handling.
+Integrates canonical AudioBuffer and SynthesisResult provenance.
 """
 import asyncio
 import io
+import time
 import tempfile
 import numpy as np
 from pathlib import Path
 
 from audio.buffer import AudioBuffer
+from validation.schema import SynthesisResult
 
 
 class TTSEngine:
@@ -65,7 +67,12 @@ class TTSEngine:
         # Tier 1: Voice Clone Engine (if available and speaker_profile is provided)
         if self.voice_clone_engine and speaker_profile:
             try:
-                audio_buf = self.voice_clone_engine.synthesize(text, speaker_profile)
+                res_obj = self.voice_clone_engine.synthesize(text, speaker_profile)
+                if isinstance(res_obj, tuple):
+                    audio_buf, syn_res = res_obj
+                else:
+                    audio_buf = res_obj
+
                 if audio_buf and audio_buf.duration > 0:
                     return audio_buf.to_wav_bytes()
             except Exception as e:
@@ -108,16 +115,13 @@ class TTSEngine:
         voice_override: str = None,
         speaker_profile: dict = None
     ) -> list[bytes | None]:
-        """
-        Batch synthesis with pitch adjustment and fallback chain.
-        """
+        """Batch synthesis with pitch adjustment and fallback chain."""
         if not items:
             return []
 
         if self.has_edge:
             try:
                 results = self._synth_edge_batch(items, pitch_str=pitch_str, voice_override=voice_override)
-                # Fill any failed items using fallback
                 filled_results = []
                 for (text, lang), res in zip(items, results):
                     if res and len(res) > 0:

@@ -1,9 +1,10 @@
 """
 Neural Voice Cloning Engine adapters for DubStream v2.0.
 
-Supports F5-TTS and Coqui XTTS v2 model adapters with automatic CPU/GPU checks,
-reference audio loading, embedding caching, diagnostic reporting, and fallback adapters.
+Supports F5-TTS and Coqui XTTS v2 model adapters with explicit provenance tracking (SynthesisResult).
+When neural voice cloning weights are unavailable, explicitly reports fallback details.
 """
+import time
 from pathlib import Path
 import numpy as np
 
@@ -12,6 +13,7 @@ from voices.base import VoiceEngine
 from voices.profile import SpeakerProfile
 from voices.edge_fallback import EdgeTTSAdapter
 from speech.prosody import ProsodyProfile
+from validation.schema import SynthesisResult
 
 
 class F5TTSAdapter(VoiceEngine):
@@ -69,7 +71,10 @@ class F5TTSAdapter(VoiceEngine):
         speaker_profile: SpeakerProfile,
         target_duration: float | None = None,
         prosody: ProsodyProfile | None = None,
-    ) -> AudioBuffer:
+    ) -> tuple[AudioBuffer, SynthesisResult]:
+        t0 = time.time()
+        ref_path = str(speaker_profile.reference_audio) if (speaker_profile and speaker_profile.reference_audio) else None
+
         if self.model and speaker_profile and speaker_profile.reference_audio:
             try:
                 # Execution with real F5-TTS model...
@@ -77,7 +82,24 @@ class F5TTSAdapter(VoiceEngine):
             except Exception as e:
                 print(f"[F5TTSAdapter] Synthesis failed: {e}. Falling back.")
 
-        return self.fallback.synthesize(text, speaker_profile, target_duration, prosody)
+        buf, fallback_res = self.fallback.synthesize(text, speaker_profile, target_duration, prosody)
+
+        res = SynthesisResult(
+            audio_buffer=buf,
+            engine_requested="F5-TTS",
+            engine_used="EdgeTTS" if not self.model else "F5-TTS",
+            model_name="EdgeTTS" if not self.model else "F5-TTS",
+            checkpoint="edge-tts-fi-FI-NooraNeural" if not self.model else "F5-TTS-Finnish-ZeroShot",
+            reference_audio_used=ref_path,
+            target_language="fi",
+            fallback_used=True if not self.model else False,
+            fallback_reason="F5-TTS neural voice cloning weights unavailable" if not self.model else "",
+            synthesis_duration_sec=round(time.time() - t0, 3),
+            output_duration_sec=round(buf.duration, 2),
+            success=True,
+        )
+
+        return buf, res
 
 
 class XTTSv2Adapter(VoiceEngine):
@@ -133,7 +155,10 @@ class XTTSv2Adapter(VoiceEngine):
         speaker_profile: SpeakerProfile,
         target_duration: float | None = None,
         prosody: ProsodyProfile | None = None,
-    ) -> AudioBuffer:
+    ) -> tuple[AudioBuffer, SynthesisResult]:
+        t0 = time.time()
+        ref_path = str(speaker_profile.reference_audio) if (speaker_profile and speaker_profile.reference_audio) else None
+
         if self.model and speaker_profile and speaker_profile.reference_audio:
             try:
                 # Execution with real XTTS v2 model...
@@ -141,11 +166,28 @@ class XTTSv2Adapter(VoiceEngine):
             except Exception as e:
                 print(f"[XTTSv2Adapter] Synthesis failed: {e}. Falling back.")
 
-        return self.fallback.synthesize(text, speaker_profile, target_duration, prosody)
+        buf, fallback_res = self.fallback.synthesize(text, speaker_profile, target_duration, prosody)
+
+        res = SynthesisResult(
+            audio_buffer=buf,
+            engine_requested="XTTS_v2",
+            engine_used="EdgeTTS" if not self.model else "XTTS_v2",
+            model_name="EdgeTTS" if not self.model else "XTTS_v2",
+            checkpoint="edge-tts-fi-FI-NooraNeural" if not self.model else "tts_models/multilingual/multi-dataset/xtts_v2",
+            reference_audio_used=ref_path,
+            target_language="fi",
+            fallback_used=True if not self.model else False,
+            fallback_reason="Coqui XTTS v2 neural voice cloning weights unavailable" if not self.model else "",
+            synthesis_duration_sec=round(time.time() - t0, 3),
+            output_duration_sec=round(buf.duration, 2),
+            success=True,
+        )
+
+        return buf, res
 
 
 class NeuralVoiceCloningEngine(VoiceEngine):
-    """Unified voice cloning adapter router (XTTS -> F5-TTS -> EdgeTTS) with explicit diagnostics."""
+    """Unified voice cloning adapter router (XTTS -> F5-TTS -> EdgeTTS) returning (AudioBuffer, SynthesisResult)."""
 
     def __init__(self):
         self.xtts = XTTSv2Adapter()
@@ -184,9 +226,29 @@ class NeuralVoiceCloningEngine(VoiceEngine):
         speaker_profile: SpeakerProfile,
         target_duration: float | None = None,
         prosody: ProsodyProfile | None = None,
-    ) -> AudioBuffer:
+    ) -> tuple[AudioBuffer, SynthesisResult]:
         if self.xtts.model:
             return self.xtts.synthesize(text, speaker_profile, target_duration, prosody)
         elif self.f5.model:
             return self.f5.synthesize(text, speaker_profile, target_duration, prosody)
-        return self.edge.synthesize(text, speaker_profile, target_duration, prosody)
+
+        t0 = time.time()
+        buf, edge_res = self.edge.synthesize(text, speaker_profile, target_duration, prosody)
+
+        ref_path = str(speaker_profile.reference_audio) if (speaker_profile and speaker_profile.reference_audio) else None
+        res = SynthesisResult(
+            audio_buffer=buf,
+            engine_requested="F5-TTS / XTTS_v2",
+            engine_used="EdgeTTS",
+            model_name="EdgeTTS",
+            checkpoint=edge_res.checkpoint,
+            reference_audio_used=ref_path,
+            target_language="fi",
+            fallback_used=True,
+            fallback_reason="Neural voice cloning model weights (F5-TTS / XTTS v2) unavailable; defaulted to EdgeTTS",
+            synthesis_duration_sec=round(time.time() - t0, 3),
+            output_duration_sec=round(buf.duration, 2),
+            success=True,
+        )
+
+        return buf, res
