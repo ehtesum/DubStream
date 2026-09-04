@@ -1,16 +1,22 @@
 """
-Speaker Voice Extractor and Pitch Profiler.
+Speaker Voice Extractor and Pitch Profiler for DubStream v2.0.
 
-Extracts reference speaker audio from uploaded video files and analyzes vocal
-pitch (Hz), energy, and gender characteristics to clone speaker tone.
+Extracts high-quality reference speaker audio from uploaded media using speech-quality
+assessment (VAD, SNR, spectral flatness, clipping checks) and estimates fundamental pitch (F0).
 """
-import wave
 from pathlib import Path
+import wave
 import numpy as np
+
+from audio.buffer import AudioBuffer
+from audio.extractor import SpeakerReferenceExtractor
 
 
 class SpeakerVoiceExtractor:
-    """Extracts speaker audio sample and vocal pitch profile."""
+    """Extracts quality-aware speaker audio sample and vocal pitch profile."""
+
+    def __init__(self):
+        self.reference_extractor = SpeakerReferenceExtractor(target_sample_rate=16000)
 
     @staticmethod
     def estimate_pitch(pcm_float32: np.ndarray, sr: int = 16000) -> float:
@@ -18,7 +24,6 @@ class SpeakerVoiceExtractor:
         if len(pcm_float32) < sr // 10:
             return 165.0
 
-        # Calculate energy to skip silence
         rms = float(np.sqrt(np.mean(pcm_float32 ** 2)))
         if rms < 0.01:
             return 165.0
@@ -38,42 +43,30 @@ class SpeakerVoiceExtractor:
 
     def extract_speaker_profile(self, video_path: str, progress_cb=None) -> dict:
         """
-        Extract speaker audio reference WAV clip and analyze pitch characteristics.
+        Extract clean speaker audio reference WAV clip using speech-quality assessment,
+        and analyze fundamental pitch (F0) characteristics.
         """
         import whisper
 
         if progress_cb:
             progress_cb(10.0, "Extracting audio track from video...")
 
-        audio = whisper.load_audio(video_path)
-        sr = 16000
-        duration = len(audio) / sr
+        audio_samples = whisper.load_audio(video_path)
+        full_buffer = AudioBuffer(samples=audio_samples, sample_rate=16000, channels=1)
+        duration = full_buffer.duration
 
         if progress_cb:
-            progress_cb(30.0, "Scanning vocal segments for clean speaker reference...")
+            progress_cb(30.0, "Analyzing vocal segments with speech-quality VAD & SNR evaluation...")
 
-        # Find highest energy 5-second slice in first 3 minutes
-        max_search = min(len(audio), 180 * sr)
-        chunk_len = 5 * sr
-
-        best_slice = None
-        best_rms = -1.0
-
-        if max_search > chunk_len:
-            for start in range(0, max_search - chunk_len, sr // 2):
-                slice_data = audio[start:start + chunk_len]
-                rms = float(np.sqrt(np.mean(slice_data ** 2)))
-                if rms > best_rms:
-                    best_rms = rms
-                    best_slice = slice_data
-        else:
-            best_slice = audio[:chunk_len]
+        best_ref_buf, metrics = self.reference_extractor.extract_best_reference(
+            full_buffer, target_duration=5.0, max_search_sec=180.0
+        )
 
         if progress_cb:
-            progress_cb(70.0, "Analyzing fundamental frequency (F0) & speaker pitch...")
+            progress_cb(70.0, f"Analyzing pitch (F0) on best reference (SNR: {metrics['snr_db']:.1f} dB, Quality: {metrics['quality_score']*100:.0f}%)...")
 
-        if best_slice is not None and len(best_slice) > 0:
-            pitch_hz = self.estimate_pitch(best_slice, sr)
+        if best_ref_buf is not None and len(best_ref_buf.samples) > 0:
+            pitch_hz = self.estimate_pitch(best_ref_buf.samples, best_ref_buf.sample_rate)
         else:
             pitch_hz = 165.0
 
@@ -81,12 +74,10 @@ class SpeakerVoiceExtractor:
         if pitch_hz < 160.0:
             gender = "male"
             voice_id = "fi-male"
-            # Deep voice pitch offset relative to HarriNeural (baseline ~130Hz)
             offset_hz = int(np.clip(pitch_hz - 130.0, -25.0, 25.0))
         else:
             gender = "female"
             voice_id = "fi"
-            # Female voice pitch offset relative to NooraNeural (baseline ~210Hz)
             offset_hz = int(np.clip(pitch_hz - 210.0, -25.0, 25.0))
 
         pitch_str = f"{offset_hz:+d}Hz"
@@ -94,18 +85,13 @@ class SpeakerVoiceExtractor:
         # Save reference WAV clip
         ref_path = Path(video_path).with_suffix(".speaker_ref.wav")
         try:
-            if best_slice is not None:
-                pcm_int16 = (np.clip(best_slice, -1.0, 1.0) * 32767).astype(np.int16)
-                with wave.open(str(ref_path), "wb") as wf:
-                    wf.setnchannels(1)
-                    wf.setsampwidth(2)
-                    wf.setframerate(sr)
-                    wf.writeframes(pcm_int16.tobytes())
-        except Exception:
-            pass
+            if best_ref_buf is not None and len(best_ref_buf.samples) > 0:
+                ref_path.write_bytes(best_ref_buf.to_wav_bytes())
+        except Exception as exc:
+            print(f"[SpeakerVoiceExtractor] Warning: Could not write reference WAV: {exc}")
 
         if progress_cb:
-            progress_cb(100.0, f"Speaker voice profile ready: {gender.capitalize()} ({pitch_hz} Hz)")
+            progress_cb(100.0, f"Speaker profile ready: {gender.capitalize()} ({pitch_hz} Hz, score: {metrics['quality_score']*100:.0f}%)")
 
         return {
             "gender": gender,
@@ -114,4 +100,5 @@ class SpeakerVoiceExtractor:
             "pitch_str": pitch_str,
             "ref_path": str(ref_path),
             "total_duration": duration,
+            "quality_metrics": metrics,
         }

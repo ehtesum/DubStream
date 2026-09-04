@@ -2,18 +2,18 @@
 Core audio processing pipeline for real-time dubbing.
 
 Flow:
-  Raw PCM audio -> Whisper STT -> English transcript
-                -> Translator  -> Finnish text
-                -> TTS Engine   -> Finnish audio bytes
+  Raw PCM audio / Video file -> AudioBuffer -> Whisper STT -> English transcript
+                             -> Translator  -> Finnish text
+                             -> TTS Engine   -> Dubbed Finnish audio bytes
 
-Each stage is designed to operate on short audio chunks (~2-5 seconds)
-for low-latency streaming.
+Operates on short audio chunks or batch video slices.
 """
 import io
 import tempfile
-import wave
 from pathlib import Path
+import numpy as np
 
+from audio.buffer import AudioBuffer
 from translator import Translator
 from tts_engine import TTSEngine
 from subtitle_generator import SubtitleGenerator
@@ -53,40 +53,39 @@ class AudioPipeline:
                 )
         return self._whisper_model
 
-    def _transcribe(self, pcm_bytes: bytes) -> str:
-        """Transcribe raw PCM audio bytes to text using Whisper."""
-        if not pcm_bytes:
+    def _transcribe_buffer(self, audio_buf: AudioBuffer) -> str:
+        """Transcribe an AudioBuffer using Whisper STT."""
+        if audio_buf.samples is None or len(audio_buf.samples) == 0:
             return ""
 
+        # Whisper expects mono float32 at 16kHz
+        mono_buf = audio_buf.to_mono()
+        if mono_buf.sample_rate != 16000:
+            mono_buf = mono_buf.resample(16000)
+
         try:
-            import numpy as np
-            audio_np = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
             result = self.whisper_model.transcribe(
-                audio_np,
+                mono_buf.samples,
                 language=self.source_lang if self.source_lang != "auto" else None,
                 fp16=False,
             )
             return result.get("text", "").strip()
         except Exception:
-            # Fallback to temp WAV file if in-memory numpy input fails
+            # Fallback to temp WAV file if direct in-memory array fails
             tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            tmp_name = tmp.name
             tmp.close()
             try:
-                with wave.open(tmp.name, "wb") as wf:
-                    wf.setnchannels(1)
-                    wf.setsampwidth(2)  # 16-bit
-                    wf.setframerate(16000)
-                    wf.writeframes(pcm_bytes)
-
+                Path(tmp_name).write_bytes(mono_buf.to_wav_bytes())
                 result = self.whisper_model.transcribe(
-                    tmp.name,
+                    tmp_name,
                     language=self.source_lang if self.source_lang != "auto" else None,
                     fp16=False,
                 )
                 return result.get("text", "").strip()
             finally:
                 try:
-                    Path(tmp.name).unlink(missing_ok=True)
+                    Path(tmp_name).unlink(missing_ok=True)
                 except Exception:
                     pass
 
@@ -97,12 +96,13 @@ class AudioPipeline:
         Returns a dict with keys:
           - subtitle: English subtitle text (or None)
           - sub_start / sub_end: timestamp range for the subtitle
-          - dubbed_audio: Finnish TTS audio as MP3 bytes (or None)
+          - dubbed_audio: Finnish TTS audio as bytes (or None)
         """
         if status_cb:
             status_cb("detecting", "🎙️ Detecting spoken audio & transcribing with Whisper...")
 
-        transcript = self._transcribe(pcm_bytes)
+        audio_buf = AudioBuffer.from_pcm16_bytes(pcm_bytes, sample_rate=16000, channels=1)
+        transcript = self._transcribe_buffer(audio_buf)
 
         if not transcript:
             if status_cb:
@@ -119,10 +119,9 @@ class AudioPipeline:
         if status_cb:
             status_cb("synthesizing", f"🔊 Synthesizing Finnish speech & English subtitles...")
 
-        dubbed_audio = self.tts.synthesize(finnish_text, lang="fi")
+        dubbed_audio = self.tts.synthesize(finnish_text, lang="fi", speaker_profile=self.speaker_profile)
 
-        # Estimate chunk duration from PCM length (16kHz, 16-bit mono)
-        duration = len(pcm_bytes) / (16000 * 2)
+        duration = audio_buf.duration if audio_buf.duration > 0 else (len(pcm_bytes) / (16000 * 2))
 
         self.subtitles.add_cue(english_text, timestamp, timestamp + duration)
 
@@ -138,8 +137,8 @@ class AudioPipeline:
 
     def process_video_batch(self, video_path: str, start_time: float = 0.0, max_duration: float = 120.0, progress_cb=None):
         """
-        Extract audio from video file and process `max_duration` seconds (default 120s = 2 mins for fast start).
-        Uses greedy Whisper decoding, batch translation, and concurrent async TTS.
+        Extract audio from video file and process `max_duration` seconds.
+        Uses greedy Whisper decoding, batch translation, and fallback TTS synthesis.
         """
         import base64
         import whisper
@@ -150,17 +149,19 @@ class AudioPipeline:
                 "message": f"Loading audio buffer ({start_time/60:.1f}m - {(start_time+max_duration)/60:.1f}m)..."
             })
 
-        audio = whisper.load_audio(video_path)
+        audio_data = whisper.load_audio(video_path)
         sample_rate = 16000
-        total_audio_duration = len(audio) / sample_rate
+        full_buffer = AudioBuffer(samples=audio_data, sample_rate=sample_rate, channels=1)
+        total_audio_duration = full_buffer.duration
 
         start_sample = int(start_time * sample_rate)
-        end_sample = int(min(len(audio), (start_time + max_duration) * sample_rate))
-        if start_sample >= len(audio):
+        end_sample = int(min(len(audio_data), (start_time + max_duration) * sample_rate))
+        if start_sample >= len(audio_data):
             return
 
-        audio_slice = audio[start_sample:end_sample]
-        slice_duration = len(audio_slice) / sample_rate
+        slice_samples = audio_data[start_sample:end_sample]
+        slice_buffer = AudioBuffer(samples=slice_samples, sample_rate=sample_rate, channels=1)
+        slice_duration = slice_buffer.duration
         if slice_duration <= 0:
             return
 
@@ -172,7 +173,7 @@ class AudioPipeline:
 
         # High-speed Greedy Whisper Decoding
         result = self.whisper_model.transcribe(
-            audio_slice,
+            slice_buffer.samples,
             language=self.source_lang if self.source_lang != "auto" else None,
             fp16=False,
             verbose=False,
@@ -193,11 +194,13 @@ class AudioPipeline:
         raw_texts = [s["text"].strip() for s in valid_segments]
         translated_texts = self.translator.translate_batch(raw_texts)
 
-        # High-speed Concurrent Async TTS Synthesis using extracted speaker voice profile
+        # High-speed Synthesis
         pitch_str = self.speaker_profile.get("pitch_str", "+0Hz") if self.speaker_profile else "+0Hz"
         voice_id = self.speaker_profile.get("voice_id", "fi") if self.speaker_profile else "fi"
         tts_items = [(fi_text, voice_id) for fi_text in translated_texts]
-        audio_results = self.tts.synthesize_batch(tts_items, pitch_str=pitch_str, voice_override=voice_id)
+        audio_results = self.tts.synthesize_batch(
+            tts_items, pitch_str=pitch_str, voice_override=voice_id, speaker_profile=self.speaker_profile
+        )
 
         for idx, (seg, en_text, fi_text, dubbed_audio) in enumerate(zip(valid_segments, raw_texts, translated_texts, audio_results), 1):
             seg_start = round(start_time + seg["start"], 2)

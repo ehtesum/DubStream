@@ -32,22 +32,34 @@ def index():
     return render_template("player.html")
 
 
+from werkzeug.utils import secure_filename
+
+ALLOWED_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".mp3", ".wav", ".m4a"}
+
 @app.route("/upload", methods=["POST"])
 def upload_video():
-    """Accept a video file upload and return its local URL."""
+    """Accept a video file upload safely and return its local URL."""
     video = request.files.get("video")
-    if not video:
+    if not video or not video.filename:
         return jsonify({"error": "No video file provided"}), 400
 
-    filename = video.filename.replace(" ", "_")
-    save_path = UPLOAD_DIR / filename
+    raw_filename = secure_filename(video.filename)
+    if not raw_filename:
+        return jsonify({"error": "Invalid filename"}), 400
+
+    ext = Path(raw_filename).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        return jsonify({"error": f"Unsupported file extension '{ext}'"}), 400
+
+    save_path = UPLOAD_DIR / raw_filename
     video.save(str(save_path))
-    return jsonify({"url": f"/video/{filename}", "filename": filename})
+    return jsonify({"url": f"/video/{raw_filename}", "filename": raw_filename})
 
 
 @app.route("/video/<path:filename>")
 def serve_video(filename):
-    return send_from_directory(str(UPLOAD_DIR), filename)
+    safe_name = secure_filename(filename)
+    return send_from_directory(str(UPLOAD_DIR), safe_name)
 
 
 @sock.route("/ws/dub")
