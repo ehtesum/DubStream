@@ -61,8 +61,10 @@ def run_end_to_end_validation(video_path: str = None) -> dict:
         "diagnostics": diag,
     }
 
-    # Write validation_report.json
-    report_file = Path(__file__).resolve().parent.parent / "validation_report.json"
+    # Write validation_report.json in reports/ folder
+    reports_dir = Path(__file__).resolve().parent.parent / "reports"
+    reports_dir.mkdir(exist_ok=True)
+    report_file = reports_dir / "validation_report.json"
     report_file.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"[Validation] End-to-end report exported to {report_file}")
 
