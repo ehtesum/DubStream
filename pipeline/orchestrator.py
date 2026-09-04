@@ -2,6 +2,7 @@
 Pipeline Orchestrator for DubStream v2.0.
 
 Provides Preview (fast STT -> Translation -> Edge TTS) and Production (Full VAD -> Speaker Profiling -> STT -> Spoken Finnish Rewriting -> Voice Cloning -> WSOLA -> BGM Mixing -> Quality Gate) pipelines.
+Includes full runtime diagnostics reporting.
 """
 from dataclasses import dataclass, field
 import base64
@@ -52,12 +53,17 @@ class DubStreamOrchestrator:
         speaker_profile = self.diarizer.get_or_create_profile("SPEAKER_00")
 
         gen_buf = self.voice_engine.edge.synthesize(finnish_text, speaker_profile)
+        diag = self.voice_engine.get_diagnostics(speaker_profile)
+        diag["DIARIZATION_MODE"] = "fallback_single_speaker"
+
         return {
+            "speaker_id": "SPEAKER_00",
             "subtitle": first_seg.text,
             "sub_start": first_seg.start,
             "sub_end": first_seg.end,
             "dubbed_text": finnish_text,
             "dubbed_audio_bytes": gen_buf.to_wav_bytes(),
+            "diagnostics": diag,
         }
 
     def run_production_pipeline(self, audio_buf: AudioBuffer, target_lang: str = "fi") -> dict:
@@ -73,6 +79,7 @@ class DubStreamOrchestrator:
         # 2. Speaker Diarization
         diar_segments = self.diarizer.diarize_buffer(dialogue_buf)
         speaker_id = diar_segments[0].speaker_id if diar_segments else "SPEAKER_00"
+        diar_mode = "neural" if self.diarizer.pyannote_pipeline else "fallback_single_speaker"
 
         # 3. Speaker Profiling & Prosody Analysis
         profile = self.diarizer.get_or_create_profile(speaker_id)
@@ -108,6 +115,10 @@ class DubStreamOrchestrator:
             original_audio=dialogue_buf, generated_audio=final_mix_buf, target_duration=target_dur
         )
 
+        # Diagnostics Metadata
+        diag = self.voice_engine.get_diagnostics(profile)
+        diag["DIARIZATION_MODE"] = diar_mode
+
         return {
             "speaker_id": speaker_id,
             "subtitle": first_seg.text,
@@ -117,4 +128,5 @@ class DubStreamOrchestrator:
             "tier_applied": tier_used,
             "quality_report": q_report,
             "dubbed_audio_bytes": final_mix_buf.to_wav_bytes(),
+            "diagnostics": diag,
         }

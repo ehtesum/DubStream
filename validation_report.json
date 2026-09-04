@@ -1,0 +1,22 @@
+{
+  "total_processing_time_sec": 5.288,
+  "number_of_speakers": 1,
+  "speaker_id": null,
+  "clone_engine_used": null,
+  "fallback_count": 0,
+  "translation_backend": "GoogleTranslator + Puhekieli",
+  "duration_statistics": {
+    "original_start": null,
+    "original_end": null,
+    "duration_error_sec": 0.0,
+    "tier_applied": null
+  },
+  "loudness_statistics": {
+    "loudness_error_db": 0.0,
+    "clipping_detected": false
+  },
+  "quality_gate_passed": false,
+  "failed_segments": 0,
+  "regeneration_count": 0,
+  "diagnostics": {}
+}

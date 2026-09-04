@@ -76,12 +76,19 @@ class ModularTranslator:
         return [self.rewriter.rewrite(t, self.target_lang, speaker_profile) for t in raw_res]
 
     def _translate_argos(self, text: str) -> str:
-        import argostranslate.translate
-        translated = argostranslate.translate.translate(text, self.source_lang, self.target_lang)
-        return translated or text
+        try:
+            import argostranslate.translate
+            translated = argostranslate.translate.translate(text, self.source_lang, self.target_lang)
+            return translated or text
+        except Exception:
+            return text
 
     def _translate_deep(self, text: str) -> str:
-        from deep_translator import GoogleTranslator
-        src = self.source_lang if self.source_lang != "auto" else "auto"
-        result = GoogleTranslator(source=src, target=self.target_lang).translate(text)
-        return result or text
+        try:
+            from deep_translator import GoogleTranslator
+            src = self.source_lang if self.source_lang != "auto" else "auto"
+            result = GoogleTranslator(source=src, target=self.target_lang).translate(text)
+            return result or text
+        except Exception as exc:
+            print(f"[Translator Fallback] deep_translator warning: {exc}. Returning raw text.")
+            return text

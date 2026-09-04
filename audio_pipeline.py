@@ -1,19 +1,18 @@
 """
-Core audio processing pipeline for real-time dubbing.
+Core audio processing pipeline for real-time dubbing in DubStream v2.0.
 
 Flow:
-  Raw PCM audio / Video file -> AudioBuffer -> Whisper STT -> English transcript
-                             -> Translator  -> Finnish text
-                             -> TTS Engine   -> Dubbed Finnish audio bytes
-
-Operates on short audio chunks or batch video slices.
+  Raw PCM audio / Video file -> AudioBuffer -> DubStreamOrchestrator -> Production/Preview Dubbing Output
 """
 import io
 import tempfile
 from pathlib import Path
 import numpy as np
+import base64
 
+from config import DubStreamConfig
 from audio.buffer import AudioBuffer
+from pipeline.orchestrator import DubStreamOrchestrator
 from translator import Translator
 from tts_engine import TTSEngine
 from subtitle_generator import SubtitleGenerator
@@ -21,15 +20,15 @@ from speaker_extractor import SpeakerVoiceExtractor
 
 
 class AudioPipeline:
-    """Coordinates transcription, translation, and speech synthesis."""
+    """Coordinates transcription, translation, and speech synthesis via DubStreamOrchestrator."""
 
-    def __init__(self):
+    def __init__(self, config: DubStreamConfig = None):
+        self.config = config or DubStreamConfig()
+        self.orchestrator = DubStreamOrchestrator(config=self.config)
         self.source_lang = "auto"
         self.target_lang = "fi"
-        self._whisper_model = None
-        self.translator = Translator()
-        self.translator.set_languages("auto", "fi")
-        self.tts = TTSEngine()
+        self.translator = self.orchestrator.translator
+        self.tts = self.orchestrator.voice_engine
         self.subtitles = SubtitleGenerator()
         self.speaker_extractor = SpeakerVoiceExtractor()
         self.speaker_profile = None
@@ -41,106 +40,47 @@ class AudioPipeline:
 
     @property
     def whisper_model(self):
-        """Lazy-load Whisper to avoid startup delay if unused."""
-        if self._whisper_model is None:
-            try:
-                import whisper
-                self._whisper_model = whisper.load_model("base")
-            except ImportError:
-                raise RuntimeError(
-                    "openai-whisper is not installed. "
-                    "Run: pip install openai-whisper"
-                )
-        return self._whisper_model
-
-    def _transcribe_buffer(self, audio_buf: AudioBuffer) -> str:
-        """Transcribe an AudioBuffer using Whisper STT."""
-        if audio_buf.samples is None or len(audio_buf.samples) == 0:
-            return ""
-
-        # Whisper expects mono float32 at 16kHz
-        mono_buf = audio_buf.to_mono()
-        if mono_buf.sample_rate != 16000:
-            mono_buf = mono_buf.resample(16000)
-
-        try:
-            result = self.whisper_model.transcribe(
-                mono_buf.samples,
-                language=self.source_lang if self.source_lang != "auto" else None,
-                fp16=False,
-            )
-            return result.get("text", "").strip()
-        except Exception:
-            # Fallback to temp WAV file if direct in-memory array fails
-            tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-            tmp_name = tmp.name
-            tmp.close()
-            try:
-                Path(tmp_name).write_bytes(mono_buf.to_wav_bytes())
-                result = self.whisper_model.transcribe(
-                    tmp_name,
-                    language=self.source_lang if self.source_lang != "auto" else None,
-                    fp16=False,
-                )
-                return result.get("text", "").strip()
-            finally:
-                try:
-                    Path(tmp_name).unlink(missing_ok=True)
-                except Exception:
-                    pass
+        return self.orchestrator.transcriber.whisper_model
 
     def process_chunk(self, pcm_bytes: bytes, timestamp: float, status_cb=None) -> dict:
-        """
-        Process a single audio chunk through the full pipeline.
-
-        Returns a dict with keys:
-          - subtitle: English subtitle text (or None)
-          - sub_start / sub_end: timestamp range for the subtitle
-          - dubbed_audio: Finnish TTS audio as bytes (or None)
-        """
+        """Process a single audio chunk through the full orchestrator pipeline."""
         if status_cb:
-            status_cb("detecting", "🎙️ Detecting spoken audio & transcribing with Whisper...")
+            status_cb("detecting", "🎙️ Detecting spoken audio & processing via DubStream Orchestrator...")
 
         audio_buf = AudioBuffer.from_pcm16_bytes(pcm_bytes, sample_rate=16000, channels=1)
-        transcript = self._transcribe_buffer(audio_buf)
-
-        if not transcript:
+        if audio_buf.duration <= 0.05:
             if status_cb:
                 status_cb("idle", "Waiting for spoken dialogue...")
             return {"subtitle": None, "dubbed_audio": None}
 
-        english_text = transcript
+        res = self.orchestrator.run_production_pipeline(audio_buf, target_lang=self.target_lang)
 
-        if status_cb:
-            status_cb("translating", f"🌐 Translating: \"{english_text}\" → Finnish")
+        if not res.get("subtitle"):
+            if status_cb:
+                status_cb("idle", "Waiting for spoken dialogue...")
+            return {"subtitle": None, "dubbed_audio": None}
 
-        finnish_text = self.translator.translate(english_text)
-
-        if status_cb:
-            status_cb("synthesizing", f"🔊 Synthesizing Finnish speech & English subtitles...")
-
-        dubbed_audio = self.tts.synthesize(finnish_text, lang="fi", speaker_profile=self.speaker_profile)
-
-        duration = audio_buf.duration if audio_buf.duration > 0 else (len(pcm_bytes) / (16000 * 2))
+        english_text = res["subtitle"]
+        dubbed_audio = res.get("dubbed_audio_bytes")
+        duration = res["sub_end"] - res["sub_start"]
 
         self.subtitles.add_cue(english_text, timestamp, timestamp + duration)
 
         if status_cb:
-            status_cb("complete", f"✅ Dubbed & English Subtitles Ready")
+            status_cb("complete", f"✅ Dubbed ({res.get('diagnostics', {}).get('VOICE_ENGINE_SELECTED')})")
 
         return {
             "subtitle": english_text,
             "sub_start": timestamp,
             "sub_end": round(timestamp + duration, 2),
             "dubbed_audio": dubbed_audio,
+            "diagnostics": res.get("diagnostics", {}),
         }
 
-    def process_video_batch(self, video_path: str, start_time: float = 0.0, max_duration: float = 120.0, progress_cb=None):
-        """
-        Extract audio from video file and process `max_duration` seconds.
-        Uses greedy Whisper decoding, batch translation, and fallback TTS synthesis.
-        """
-        import base64
+    def process_video_batch(
+        self, video_path: str, start_time: float = 0.0, max_duration: float = 120.0, progress_cb=None
+    ):
+        """Process a video batch slice through DubStreamOrchestrator."""
         import whisper
 
         if progress_cb:
@@ -168,63 +108,41 @@ class AudioPipeline:
         if progress_cb:
             progress_cb({
                 "type": "status",
-                "message": f"High-speed Whisper STT transcribing ({slice_duration/60:.1f} mins)..."
+                "message": f"Orchestrator processing batch ({slice_duration/60:.1f} mins)..."
             })
 
-        # High-speed Greedy Whisper Decoding
-        result = self.whisper_model.transcribe(
-            slice_buffer.samples,
-            language=self.source_lang if self.source_lang != "auto" else None,
-            fp16=False,
-            verbose=False,
-            beam_size=1,
-            temperature=0.0,
-            best_of=1,
-            condition_on_previous_text=False,
-        )
+        res = self.orchestrator.run_production_pipeline(slice_buffer, target_lang=self.target_lang)
 
-        segments = result.get("segments", [])
-        valid_segments = [s for s in segments if s.get("text", "").strip()]
-        total_segments = len(valid_segments)
-
-        if not valid_segments:
+        if not res.get("subtitle"):
             return
 
-        # High-speed Batch Translation
-        raw_texts = [s["text"].strip() for s in valid_segments]
-        translated_texts = self.translator.translate_batch(raw_texts)
+        seg_start = round(start_time + res["sub_start"], 2)
+        seg_end = round(start_time + res["sub_end"], 2)
+        en_text = res["subtitle"]
+        fi_text = res["dubbed_text"]
+        dubbed_audio = res.get("dubbed_audio_bytes")
+        diag = res.get("diagnostics", {})
 
-        # High-speed Synthesis
-        pitch_str = self.speaker_profile.get("pitch_str", "+0Hz") if self.speaker_profile else "+0Hz"
-        voice_id = self.speaker_profile.get("voice_id", "fi") if self.speaker_profile else "fi"
-        tts_items = [(fi_text, voice_id) for fi_text in translated_texts]
-        audio_results = self.tts.synthesize_batch(
-            tts_items, pitch_str=pitch_str, voice_override=voice_id, speaker_profile=self.speaker_profile
-        )
+        self.subtitles.add_cue(en_text, seg_start, seg_end)
 
-        for idx, (seg, en_text, fi_text, dubbed_audio) in enumerate(zip(valid_segments, raw_texts, translated_texts, audio_results), 1):
-            seg_start = round(start_time + seg["start"], 2)
-            seg_end = round(start_time + seg["end"], 2)
-
-            self.subtitles.add_cue(en_text, seg_start, seg_end)
-            percent = round((idx / max(1, total_segments)) * 100, 1)
-
-            if progress_cb:
-                progress_cb({
-                    "type": "preprocess_progress",
-                    "percent": percent,
-                    "segment_index": idx,
-                    "total_segments": total_segments,
-                    "start_time": start_time,
-                    "processed_duration": round(seg_end - start_time, 2),
-                    "target_duration": round(slice_duration, 2),
-                    "total_video_duration": round(total_audio_duration, 2),
-                    "segment": {
-                        "id": f"{int(start_time)}_{idx}",
-                        "start": seg_start,
-                        "end": seg_end,
-                        "english_text": en_text,
-                        "finnish_text": fi_text,
-                        "audio_b64": base64.b64encode(dubbed_audio).decode() if dubbed_audio else None,
-                    }
-                })
+        if progress_cb:
+            progress_cb({
+                "type": "preprocess_progress",
+                "percent": 100.0,
+                "segment_index": 1,
+                "total_segments": 1,
+                "start_time": start_time,
+                "processed_duration": round(seg_end - start_time, 2),
+                "target_duration": round(slice_duration, 2),
+                "total_video_duration": round(total_audio_duration, 2),
+                "diagnostics": diag,
+                "segment": {
+                    "id": f"{int(start_time)}_1",
+                    "start": seg_start,
+                    "end": seg_end,
+                    "english_text": en_text,
+                    "finnish_text": fi_text,
+                    "audio_b64": base64.b64encode(dubbed_audio).decode() if dubbed_audio else None,
+                    "diagnostics": diag,
+                }
+            })
