@@ -1,7 +1,7 @@
 # DubStream v2 End-to-End Validation Report
-**Run ID**: `2026-09-04T18:32:17Z_f654fa1`
-**Timestamp**: `2026-09-04T18:32:17Z`
-**Git Commit**: `f654fa1` (`v2`)
+**Run ID**: `2026-09-04T18:35:09Z_3d67ef5`
+**Timestamp**: `2026-09-04T18:35:09Z`
+**Git Commit**: `3d67ef5` (`v2`)
 **Classification**: `ADVANCED PROTOTYPE / ENGINEERING PRE-PRODUCTION`
 
 ## Executive Summary
@@ -40,4 +40,4 @@
 ## Synthesis Provenance
 - **Reference Audio Used**: `None`
 - **Output Duration**: `3.00 s`
-- **Synthesis Time**: `6.747 s`
+- **Synthesis Time**: `4.862 s`

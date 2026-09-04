@@ -1,0 +1,58 @@
+{
+  "timestamp": "2026-09-04T18:35:02Z",
+  "test_status": "EXECUTED",
+  "engine_requested": "F5-TTS / XTTS_v2",
+  "engine_used": "EdgeTTS",
+  "fallback_used": true,
+  "fallback_reason": "Neural voice cloning model weights (F5-TTS / XTTS v2) unavailable; defaulted to EdgeTTS",
+  "reference_audio_metrics": {
+    "reference_path": "C:\\Users\\user\\Desktop\\ehte\\projects\\dubstream_netflix_ai\\DubStream\\test_outputs\\clean_speaker_ref.wav",
+    "duration_sec": 3.0,
+    "snr_db": 0.1,
+    "clipping_ratio": 0.0,
+    "f0_median_hz": 219.17808532714844,
+    "f0_p10_hz": 219.17808532714844,
+    "f0_p90_hz": 219.17808532714844,
+    "voiced_ratio": 1.0
+  },
+  "speaker_similarity": {
+    "status": "UNAVAILABLE",
+    "score": null,
+    "interpretation": "model unavailable"
+  },
+  "synthesis_sentences": {
+    "neutral_statement": {
+      "text": "T\u00e4m\u00e4 on normaali suomenkielinen lause.",
+      "output_wav": "C:\\Users\\user\\Desktop\\ehte\\projects\\dubstream_netflix_ai\\DubStream\\test_outputs\\cloned_neutral_statement.wav",
+      "duration_sec": 0.42,
+      "f0_median_hz": 333.3333435058594,
+      "integrated_lufs": -7.8,
+      "clipping_detected": true
+    },
+    "question": {
+      "text": "Mit\u00e4 mielt\u00e4 sin\u00e4 olet t\u00e4st\u00e4 elokuvasta?",
+      "output_wav": "C:\\Users\\user\\Desktop\\ehte\\projects\\dubstream_netflix_ai\\DubStream\\test_outputs\\cloned_question.wav",
+      "duration_sec": 0.42,
+      "f0_median_hz": 333.3333435058594,
+      "integrated_lufs": -7.8,
+      "clipping_detected": true
+    },
+    "short_conversational": {
+      "text": "Joo, m\u00e4 oon valmis.",
+      "output_wav": "C:\\Users\\user\\Desktop\\ehte\\projects\\dubstream_netflix_ai\\DubStream\\test_outputs\\cloned_short_conversational.wav",
+      "duration_sec": 0.35,
+      "f0_median_hz": 333.3333435058594,
+      "integrated_lufs": -7.7,
+      "clipping_detected": true
+    },
+    "longer_dramatic": {
+      "text": "Meid\u00e4n t\u00e4ytyy l\u00f6yt\u00e4\u00e4 ratkaisu ennen kuin on liian my\u00f6h\u00e4ist\u00e4.",
+      "output_wav": "C:\\Users\\user\\Desktop\\ehte\\projects\\dubstream_netflix_ai\\DubStream\\test_outputs\\cloned_longer_dramatic.wav",
+      "duration_sec": 0.56,
+      "f0_median_hz": 333.3333435058594,
+      "integrated_lufs": -7.8,
+      "clipping_detected": true
+    }
+  },
+  "total_test_duration_sec": 9.336
+}
