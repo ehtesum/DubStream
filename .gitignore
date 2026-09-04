@@ -1,0 +1,15 @@
+# Python & Virtual Environments
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Uploads & Media (exclude uploaded files, preserve folder structure)
+uploads/*
+!uploads/.gitkeep
+
+# IDEs & System files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

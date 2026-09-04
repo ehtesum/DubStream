@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DubStream — Real-Time Movie Dubbing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-brand">
+      <span class="brand-icon">▶</span>
+      <span class="brand-name">DubStream</span>
+    </div>
+    <div class="topbar-status" id="statusBadge">Disconnected</div>
+  </header>
+
+  <main class="player-layout">
+    <!-- Upload panel (shown when no video loaded) -->
+    <section class="upload-panel" id="uploadPanel">
+      <div class="upload-dropzone" id="dropzone">
+        <div class="upload-icon">🎬</div>
+        <h2>Drop a video file here</h2>
+        <p>or click to browse — MP4, MKV, AVI, WebM supported</p>
+        <input type="file" id="fileInput" accept="video/*" hidden>
+        <button class="btn-primary" id="browseBtn">Browse Files</button>
+        
+        <div class="upload-progress-container" id="uploadProgressContainer" style="display:none;">
+          <div class="upload-progress-bar">
+            <div class="upload-progress-fill" id="uploadProgressFill" style="width: 0%;"></div>
+          </div>
+          <span class="upload-progress-text" id="uploadProgressText">Uploading video: 0%</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Video player (shown after upload) -->
+    <section class="video-panel" id="videoPanel" style="display:none;">
+      <div class="video-container">
+        <video id="videoPlayer" controls crossorigin="anonymous">
+          <track id="subtitleTrack" kind="subtitles" srclang="en" label="English" default>
+        </video>
+        <div class="subtitle-overlay" id="subtitleOverlay"></div>
+      </div>
+
+      <!-- Stage 1: Speaker Voice Profile Extraction Card -->
+      <div class="batch-progress-card voice-card" id="voiceProgressCard">
+        <div class="batch-progress-header">
+          <span class="batch-title">🎙️ Stage 1: Speaker Voice Profile & Tone Extraction:</span>
+          <span class="batch-status" id="voiceStatusText">Scanning vocal pitch & energy...</span>
+        </div>
+        <div class="batch-bar-container">
+          <div class="batch-bar-fill voice-fill" id="voiceBarFill" style="width: 0%;"></div>
+        </div>
+        <div class="batch-info-footer">
+          <span id="voicePercentText">0.0%</span>
+          <span id="voiceProfileBadgeText">Voice Analysis Active</span>
+        </div>
+      </div>
+
+      <!-- Stage 2: Dubbing & Subtitle Synthesis Progress Card -->
+      <div class="batch-progress-card" id="batchProgressCard">
+        <div class="batch-progress-header">
+          <span class="batch-title">⚡ Stage 2: Tone-Matched Dubbing & Subtitle Synthesis:</span>
+          <span class="batch-status" id="batchStatusText">Ready to start fast-start buffer</span>
+        </div>
+        <div class="batch-bar-container">
+          <div class="batch-bar-fill" id="batchBarFill" style="width: 0%;"></div>
+        </div>
+        <div class="batch-info-footer">
+          <span id="batchPercentText">0.0%</span>
+          <span id="batchDurationText">Loaded: 0:00 / 2:00 mins</span>
+        </div>
+      </div>
+
+      <div class="controls-bar">
+        <div class="control-group">
+          <label>Source Audio</label>
+          <div class="badge-setting">Auto-Detect Spoken Audio 🎙️</div>
+        </div>
+
+        <div class="control-group">
+          <label>Output Dub Target</label>
+          <div class="badge-setting badge-target">Finnish 🇫🇮</div>
+        </div>
+
+        <button class="btn-primary" id="startPreprocessBtn">Generate Subtitles & Dubbing</button>
+
+        <div class="control-group volume-group">
+          <label>Original Volume</label>
+          <input type="range" id="origVolume" min="0" max="100" value="20">
+        </div>
+
+        <div class="control-group volume-group">
+          <label>Finnish Dub Volume 🔊</label>
+          <input type="range" id="dubVolume" min="0" max="100" value="80">
+        </div>
+      </div>
+
+      <div class="transcript-panel">
+        <h3>Live Transcript & English Subtitles</h3>
+        <div class="transcript-log" id="transcriptLog"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const $ = (sel) => document.querySelector(sel);
+
+    const uploadPanel  = $("#uploadPanel");
+    const videoPanel   = $("#videoPanel");
+    const dropzone     = $("#dropzone");
+    const fileInput    = $("#fileInput");
+    const browseBtn    = $("#browseBtn");
+    const videoPlayer  = $("#videoPlayer");
+    const statusBadge  = $("#statusBadge");
+    const startPreprocessBtn = $("#startPreprocessBtn");
+    const transcriptLog = $("#transcriptLog");
+    const subtitleOverlay = $("#subtitleOverlay");
+    const origVolume   = $("#origVolume");
+    const dubVolume    = $("#dubVolume");
+
+    const batchProgressCard = $("#batchProgressCard");
+    const batchStatusText   = $("#batchStatusText");
+    const batchBarFill      = $("#batchBarFill");
+    const batchPercentText  = $("#batchPercentText");
+    const batchDurationText = $("#batchDurationText");
+
+    let ws = null;
+    let loadedFilename = null;
+    let preprocessedSegments = [];
+    let playedSegmentIds = new Set();
+    let currentAudioPlayback = null;
+    let audioUnlocked = false;
+
+    // -- Volume controls --
+    origVolume.addEventListener("input", () => {
+      videoPlayer.volume = origVolume.value / 100;
+    });
+    videoPlayer.volume = 0.2;
+
+    dubVolume.addEventListener("input", () => {
+      if (currentAudioPlayback) {
+        currentAudioPlayback.volume = dubVolume.value / 100;
+      }
+    });
+
+    // Function to unlock HTML5 audio playback for browser autoplay policies
+    function unlockAudio() {
+      if (audioUnlocked) return;
+      audioUnlocked = true;
+      try {
+        const dummy = new Audio();
+        dummy.play().catch(() => {});
+      } catch (e) {}
+    }
+
+    videoPlayer.addEventListener("play", unlockAudio);
+
+    // -- Upload handling with Progress --
+    browseBtn.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", (e) => {
+      if (e.target.files.length) uploadFile(e.target.files[0]);
+    });
+
+    dropzone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropzone.classList.add("drag-hover");
+    });
+    dropzone.addEventListener("dragleave", () => dropzone.classList.remove("drag-hover"));
+    dropzone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("drag-hover");
+      if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
+    });
+
+    function uploadFile(file) {
+      const form = new FormData();
+      form.append("video", file);
+
+      const progressContainer = $("#uploadProgressContainer");
+      const progressFill = $("#uploadProgressFill");
+      const progressText = $("#uploadProgressText");
+
+      progressContainer.style.display = "block";
+      browseBtn.disabled = true;
+      statusBadge.textContent = "Uploading: 0%";
+
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/upload", true);
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const percent = Math.round((e.loaded / e.total) * 100);
+          progressFill.style.width = percent + "%";
+          progressText.textContent = `Uploading video: ${percent}%`;
+          statusBadge.textContent = `Uploading: ${percent}%`;
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status === 200) {
+          const data = JSON.parse(xhr.responseText);
+          if (data.url && data.filename) {
+            loadedFilename = data.filename;
+            videoPlayer.src = data.url;
+            uploadPanel.style.display = "none";
+            videoPanel.style.display = "block";
+            statusBadge.textContent = "Video loaded";
+            initWebSocketAndPreprocess();
+          } else {
+            statusBadge.textContent = "Upload failed";
+            alert("Upload error: " + (data.error || "Unknown error"));
+          }
+        } else {
+          statusBadge.textContent = "Upload error";
+        }
+      };
+
+      xhr.onerror = () => {
+        statusBadge.textContent = "Network upload error";
+      };
+
+      xhr.send(form);
+    }
+
+    // -- Volume control --
+    origVolume.addEventListener("input", () => {
+      videoPlayer.volume = origVolume.value / 100;
+    });
+    videoPlayer.volume = 0.2;
+
+    // -- WebSocket batch pre-processing --
+    startPreprocessBtn.addEventListener("click", () => {
+      if (loadedFilename) startPreprocess(loadedFilename);
+    });
+
+    function initWebSocketAndPreprocess() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        startPreprocess(loadedFilename);
+        return;
+      }
+
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      ws = new WebSocket(`${proto}//${location.host}/ws/dub`);
+
+      ws.onopen = () => {
+        statusBadge.textContent = "Connected";
+        ws.send(JSON.stringify({ type: "config", source_lang: "auto", target_lang: "fi" }));
+        if (loadedFilename) startPreprocess(loadedFilename);
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+
+        if (msg.type === "status") {
+          batchStatusText.textContent = msg.message;
+        } else if (msg.type === "voice_analysis_progress") {
+          const vp = msg.percent || 0;
+          $("#voiceBarFill").style.width = vp + "%";
+          $("#voicePercentText").textContent = vp + "%";
+          $("#voiceStatusText").textContent = msg.message;
+        } else if (msg.type === "speaker_profile_ready") {
+          $("#voiceBarFill").style.width = "100%";
+          $("#voicePercentText").textContent = "100%";
+          const p = msg.profile || {};
+          $("#voiceStatusText").textContent = `✅ Profile Ready: ${p.gender === 'male' ? 'Male Voice 👨' : 'Female Voice 👩'} (${p.pitch_hz} Hz, Offset ${p.pitch_str})`;
+          $("#voiceProfileBadgeText").textContent = `Pitch: ${p.pitch_hz} Hz`;
+        } else if (msg.type === "preprocess_progress") {
+          handlePreprocessProgress(msg);
+        } else if (msg.type === "preprocess_fast_start_ready") {
+          batchStatusText.textContent = "🚀 Fast-Start Buffer Ready (~2m)! Playing video while background loading...";
+          batchBarFill.style.width = "100%";
+          videoPlayer.play().catch(() => {});
+        } else if (msg.type === "preprocess_all_complete") {
+          batchStatusText.textContent = "🎉 Full video subtitles & dubbing complete!";
+        } else if (msg.type === "error") {
+          batchStatusText.textContent = "Error: " + msg.message;
+          statusBadge.textContent = "Error: " + msg.message;
+        }
+      };
+
+      ws.onclose = () => {
+        statusBadge.textContent = "Disconnected";
+      };
+    }
+
+    function startPreprocess(filename) {
+      preprocessedSegments = [];
+      playedSegmentIds.clear();
+      transcriptLog.innerHTML = "";
+      $("#voiceProgressCard").style.display = "block";
+      $("#batchProgressCard").style.display = "block";
+      $("#voiceBarFill").style.width = "0%";
+      $("#voicePercentText").textContent = "0.0%";
+      $("#voiceStatusText").textContent = "🎙️ Stage 1: Extracting speaker reference vocal clip...";
+      batchStatusText.textContent = "Waiting for Stage 1 voice profile...";
+      batchBarFill.style.width = "0%";
+      batchPercentText.textContent = "0.0%";
+      startPreprocessBtn.disabled = true;
+
+      ws.send(JSON.stringify({
+        type: "start_preprocess",
+        filename: filename
+      }));
+    }
+
+    function handlePreprocessProgress(msg) {
+      const percent = msg.percent || 0;
+      batchBarFill.style.width = percent + "%";
+      batchPercentText.textContent = percent + "%";
+      
+      const loadedMin = formatTime(msg.processed_duration || 0);
+      const targetMin = formatTime(msg.target_duration || 1800);
+      batchDurationText.textContent = `Loaded: ${loadedMin} / ${targetMin} mins`;
+      batchStatusText.textContent = `Processing segment ${msg.segment_index}/${msg.total_segments}...`;
+
+      if (msg.segment) {
+        preprocessedSegments.push(msg.segment);
+        addTranscriptLog(msg.segment.english_text, msg.segment.start, msg.segment.finnish_text);
+      }
+    }
+
+    // -- Synchronized video playback --
+    videoPlayer.addEventListener("timeupdate", () => {
+      if (videoPlayer.paused) return;
+
+      const curTime = videoPlayer.currentTime;
+
+      for (const seg of preprocessedSegments) {
+        if (curTime >= seg.start && curTime <= seg.end + 0.5) {
+          if (!playedSegmentIds.has(seg.id)) {
+            playedSegmentIds.add(seg.id);
+            
+            // Show English subtitle
+            showEnglishSubtitle(seg.english_text, seg.start, seg.end);
+
+            // Play Finnish dubbed audio
+            if (seg.audio_b64) {
+              playDubbedAudio(seg.audio_b64);
+            }
+          }
+        }
+      }
+    });
+
+    videoPlayer.addEventListener("pause", () => {
+      if (currentAudioPlayback) {
+        currentAudioPlayback.pause();
+        currentAudioPlayback = null;
+      }
+      if (window.subTimeout) clearTimeout(window.subTimeout);
+      subtitleOverlay.classList.remove("visible");
+    });
+
+    videoPlayer.addEventListener("seeked", () => {
+      if (currentAudioPlayback) {
+        currentAudioPlayback.pause();
+        currentAudioPlayback = null;
+      }
+      playedSegmentIds.clear();
+    });
+
+    function showEnglishSubtitle(text, start, end) {
+      if (!text || !text.trim()) return;
+
+      subtitleOverlay.textContent = text;
+      subtitleOverlay.classList.add("visible");
+
+      const duration = Math.max(2500, (end - start) * 1000);
+      if (window.subTimeout) clearTimeout(window.subTimeout);
+      window.subTimeout = setTimeout(() => subtitleOverlay.classList.remove("visible"), duration);
+    }
+
+    function addTranscriptLog(enText, start, fiText) {
+      const entry = document.createElement("div");
+      entry.className = "transcript-entry";
+      entry.innerHTML = `<span class="ts">${formatTime(start)}</span> <span class="badge-en">[EN]</span> ${enText} <br><span class="fi-sub">🇫🇮 ${fiText}</span>`;
+      transcriptLog.appendChild(entry);
+      transcriptLog.scrollTop = transcriptLog.scrollHeight;
+    }
+
+    function playDubbedAudio(b64Data) {
+      if (videoPlayer.paused) return;
+
+      try {
+        if (currentAudioPlayback) {
+          currentAudioPlayback.pause();
+          currentAudioPlayback = null;
+        }
+
+        const raw = atob(b64Data);
+        const bytes = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+
+        const blob = new Blob([bytes], { type: "audio/mpeg" });
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.volume = dubVolume.value / 100;
+        currentAudioPlayback = audio;
+        audio.play().catch((err) => { console.warn("Audio play blocked by browser:", err); });
+        audio.onended = () => URL.revokeObjectURL(url);
+      } catch (e) {
+        console.error("Dubbed audio error:", e);
+      }
+    }
+
+    function formatTime(s) {
+      const m = Math.floor(s / 60);
+      const sec = Math.floor(s % 60);
+      return `${m}:${sec.toString().padStart(2, "0")}`;
+    }
+  </script>
+</body>
+</html>
