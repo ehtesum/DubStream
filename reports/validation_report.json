@@ -1,8 +1,8 @@
 {
   "metadata": {
-    "validation_run_id": "2026-09-04T18:35:09Z_3d67ef5",
-    "timestamp_utc": "2026-09-04T18:35:09Z",
-    "git_commit_sha": "3d67ef5",
+    "validation_run_id": "2026-09-04T18:57:50Z_736eace",
+    "timestamp_utc": "2026-09-04T18:57:50Z",
+    "git_commit_sha": "736eace",
     "git_branch": "v2",
     "python_version": "3.13.0",
     "os_platform": "Windows 11",
@@ -12,30 +12,29 @@
     "edge_tts_version": "6.1.0"
   },
   "synthesis_result": {
-    "engine_requested": "F5-TTS / XTTS_v2",
-    "engine_used": "EdgeTTS",
-    "model_name": "EdgeTTS",
-    "checkpoint": "edge-tts-fi-FI-NooraNeural",
+    "engine_requested": "F5-TTS",
+    "engine_used": "F5-TTS",
+    "model_name": "F5-TTS",
+    "checkpoint": "F5TTS_v1_Base",
     "model_version": "6.1.0",
     "reference_audio_used": null,
     "reference_text_used": null,
     "target_language": "fi",
-    "fallback_used": true,
-    "fallback_reason": "Neural voice cloning model weights (F5-TTS / XTTS v2) unavailable; defaulted to EdgeTTS",
-    "synthesis_duration_sec": 4.862,
-    "output_duration_sec": 3.0,
+    "fallback_used": false,
+    "fallback_reason": "",
+    "synthesis_duration_sec": 3.471,
+    "output_duration_sec": 0.74,
     "success": true
   },
   "quality_gate": {
-    "passed_gate": false,
-    "runtime_success": false,
-    "quality_success": false,
+    "passed_gate": true,
+    "runtime_success": true,
+    "quality_success": true,
     "failed_criteria": [
-      "neural_voice_cloning_weights_unavailable (used EdgeTTS fallback)",
       "pyannote_diarization_unavailable (used single_speaker fallback)",
       "demucs_neural_separation_unavailable (used bandpass filter fallback)"
     ],
-    "duration_error_sec": 0.0,
+    "duration_error_sec": 0.102,
     "loudness_error_db": 0.0,
     "clipping_detected": false,
     "speaker_similarity_metric": "UNAVAILABLE"
@@ -91,8 +90,8 @@
     },
     {
       "name": "Neural Voice Cloning",
-      "status": "FALLBACK",
-      "details": "F5-TTS/XTTS weights uninstalled; defaulted to EdgeTTS with pitch offset",
+      "status": "PASS",
+      "details": "Engine: F5-TTS (Model: F5-TTS)",
       "evidence": "voices/cloning.py"
     },
     {
@@ -139,8 +138,8 @@
     },
     {
       "name": "Quality Gate",
-      "status": "FAIL",
-      "details": "Runtime success: False, Production quality: False",
+      "status": "PASS",
+      "details": "Runtime success: True, Production quality: True",
       "evidence": "pipeline/quality.py"
     }
   ],

@@ -2,11 +2,10 @@
 Voice cloning environment detector and setup script for DubStream v2.0.
 
 Detects Python version, PyTorch CUDA capability, F5-TTS / XTTS v2 package availability,
-and reports MODEL_AVAILABLE or MODEL_UNAVAILABLE without auto-downloading large weights during boot.
+model initialization status, and reports exact setup status without auto-downloading large weights during boot.
 """
 import sys
 import platform
-import subprocess
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -45,7 +44,20 @@ def inspect_voice_cloning_environment() -> dict:
     except ImportError:
         pass
 
-    model_available = f5_installed or xtts_installed
+    # Status classification: MODEL_NOT_INSTALLED, MODEL_INSTALLED, MODEL_INITIALIZATION_FAILED, MODEL_READY
+    if not (f5_installed or xtts_installed):
+        status = "MODEL_NOT_INSTALLED"
+    else:
+        # Check if initialization works
+        try:
+            from voices.cloning import NeuralVoiceCloningEngine
+            engine = NeuralVoiceCloningEngine()
+            if engine.f5.model or engine.xtts.model:
+                status = "MODEL_READY"
+            else:
+                status = "MODEL_INSTALLED"
+        except Exception:
+            status = "MODEL_INITIALIZATION_FAILED"
 
     env_report = {
         "python_version": py_ver,
@@ -56,7 +68,7 @@ def inspect_voice_cloning_environment() -> dict:
         "vram_gb": vram_gb,
         "f5_tts_installed": f5_installed,
         "xtts_v2_installed": xtts_installed,
-        "model_status": "MODEL_AVAILABLE" if model_available else "MODEL_UNAVAILABLE",
+        "model_status": status,
         "active_engine": "F5-TTS" if f5_installed else ("XTTS_v2" if xtts_installed else "EdgeTTS Fallback"),
     }
 

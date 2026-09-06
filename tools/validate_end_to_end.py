@@ -87,10 +87,15 @@ def run_canonical_validation(video_path: str = None) -> ValidationReport:
     orchestrator = DubStreamOrchestrator(config=config)
 
     # Input fixture
+    test_outputs_dir = Path(__file__).resolve().parent.parent / "test_outputs"
+    ref_wav_path = test_outputs_dir / "clean_speaker_ref.wav"
     if not video_path or not Path(video_path).exists():
-        t_arr = np.linspace(0, 3.0, 48000, endpoint=False, dtype=np.float32)
-        sim_samples = (0.4 * np.sin(2 * np.pi * 220 * t_arr) + 0.1 * np.sin(2 * np.pi * 440 * t_arr)).astype(np.float32)
-        test_buf = AudioBuffer(samples=sim_samples, sample_rate=16000)
+        if ref_wav_path.exists():
+            test_buf = AudioBuffer.from_wav_file(str(ref_wav_path))
+        else:
+            t_arr = np.linspace(0, 3.0, 48000, endpoint=False, dtype=np.float32)
+            sim_samples = (0.4 * np.sin(2 * np.pi * 220 * t_arr) + 0.1 * np.sin(2 * np.pi * 440 * t_arr)).astype(np.float32)
+            test_buf = AudioBuffer(samples=sim_samples, sample_rate=16000)
     else:
         import whisper
         audio_data = whisper.load_audio(video_path)
@@ -150,7 +155,12 @@ def run_canonical_validation(video_path: str = None) -> ValidationReport:
         ComponentStatus("Whisper STT", "PASS", "Whisper STT transcription with segment/word timing", "speech/stt.py"),
         ComponentStatus("Finnish Translation", "PASS", "deep-translator GoogleTranslator backend", "translation/translator.py"),
         ComponentStatus("Spoken Finnish Rewriting", "PASS", "FinnishDialogueTransformer rule corpus (100% test pass rate)", "translation/finnish.py"),
-        ComponentStatus("Neural Voice Cloning", "FALLBACK", "F5-TTS/XTTS weights uninstalled; defaulted to EdgeTTS with pitch offset", "voices/cloning.py"),
+        ComponentStatus(
+            "Neural Voice Cloning",
+            "FALLBACK" if syn_prov.fallback_used else "PASS",
+            f"Engine: {syn_prov.engine_used} (Model: {syn_prov.model_name})" if not syn_prov.fallback_used else "F5-TTS/XTTS weights uninstalled; defaulted to EdgeTTS with pitch offset",
+            "voices/cloning.py"
+        ),
         ComponentStatus("Prosody Transfer", "PARTIAL", "Pitch offset (+NHz/-NHz) transferred to EdgeTTS; contour pending neural model", "speech/prosody.py"),
         ComponentStatus("WSOLA Time Stretching", "PASS", "Pitch-preserving WSOLA algorithm (0.80x - 1.25x rate control)", "sync/timestretch.py"),
         ComponentStatus("Duration Matching", "PASS", "4-tier matching hierarchy (0-5%, 5-12%, 12-20%, >20% text contraction)", "sync/duration.py"),

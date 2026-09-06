@@ -142,3 +142,12 @@ class AudioBuffer:
             float_samples = float_samples.reshape(-1, channels).T
 
         return cls(samples=float_samples, sample_rate=sample_rate, channels=channels)
+
+    @classmethod
+    def from_wav_file(cls, filepath) -> "AudioBuffer":
+        """Read AudioBuffer directly from a WAV file path."""
+        from pathlib import Path
+        p = Path(filepath)
+        if not p.exists():
+            raise FileNotFoundError(f"WAV file not found: {filepath}")
+        return cls.from_wav_bytes(p.read_bytes())

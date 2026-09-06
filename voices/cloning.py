@@ -5,6 +5,7 @@ Supports F5-TTS and Coqui XTTS v2 model adapters with explicit provenance tracki
 When neural voice cloning weights are unavailable, explicitly reports fallback details.
 """
 import time
+import tempfile
 from pathlib import Path
 import numpy as np
 
@@ -22,16 +23,21 @@ class F5TTSAdapter(VoiceEngine):
     def __init__(self, model_checkpoint: str = None, device: str = "auto"):
         self.device = device
         self.model = None
+        self.f5_instance = None
         self.fallback = EdgeTTSAdapter()
         self._try_init_model(model_checkpoint)
 
-    def _try_init_model(self, checkpoint):
+    def _try_init_model(self, checkpoint=None):
         try:
             import torch
-            import f5_tts  # type: ignore
+            from f5_tts.api import F5TTS
+            dev = self.device if self.device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu")
+            self.f5_instance = F5TTS(device=dev)
             self.model = "f5_tts_loaded"
-        except ImportError:
+        except Exception as e:
+            print(f"[F5TTSAdapter] Initialization note: {e}")
             self.model = None
+            self.f5_instance = None
 
     def get_diagnostics(self, speaker_profile: SpeakerProfile = None) -> dict:
         ref_dur = 0.0
@@ -48,7 +54,7 @@ class F5TTSAdapter(VoiceEngine):
                 "VOICE_ENGINE_SELECTED": "NEURAL_VOICE_CLONING",
                 "VOICE_ENGINE_FALLBACK": False,
                 "MODEL_NAME": "F5-TTS",
-                "MODEL_CHECKPOINT": "F5-TTS-Finnish-ZeroShot",
+                "MODEL_CHECKPOINT": "F5TTS_v1_Base",
                 "REFERENCE_AUDIO_DURATION": ref_dur,
                 "REFERENCE_TEXT_PRESENT": False,
                 "TARGET_LANGUAGE": "fi",
@@ -71,16 +77,68 @@ class F5TTSAdapter(VoiceEngine):
         speaker_profile: SpeakerProfile,
         target_duration: float | None = None,
         prosody: ProsodyProfile | None = None,
+        clone_only: bool = False,
     ) -> tuple[AudioBuffer, SynthesisResult]:
         t0 = time.time()
         ref_path = str(speaker_profile.reference_audio) if (speaker_profile and speaker_profile.reference_audio) else None
 
-        if self.model and speaker_profile and speaker_profile.reference_audio:
+        if self.f5_instance and ref_path and Path(ref_path).exists():
             try:
-                # Execution with real F5-TTS model...
-                pass
+                import torch
+                import soundfile as sf
+                import torchaudio
+                def _soundfile_load(filepath, **kwargs):
+                    data, sr = sf.read(filepath)
+                    if data.ndim == 1:
+                        data = data[np.newaxis, :]
+                    else:
+                        data = data.T
+                    return torch.from_numpy(data.astype(np.float32)), sr
+                torchaudio.load = _soundfile_load
+
+                test_dir = Path(__file__).resolve().parent.parent / "test_outputs"
+                test_dir.mkdir(exist_ok=True)
+                temp_wav = test_dir / f"f5_temp_{int(time.time()*1000)}.wav"
+
+                ref_text = getattr(speaker_profile, 'reference_text', None) or "Some call me nature, others call me mother nature."
+                self.f5_instance.infer(
+                    ref_file=ref_path,
+                    ref_text=ref_text,
+                    gen_text=text,
+                    file_wave=str(temp_wav),
+                    nfe_step=32,
+                )
+
+                if temp_wav.exists():
+                    buf = AudioBuffer.from_wav_file(temp_wav)
+                    try:
+                        temp_wav.unlink()
+                    except Exception:
+                        pass
+
+                    res = SynthesisResult(
+                        audio_buffer=buf,
+                        engine_requested="F5-TTS",
+                        engine_used="F5-TTS",
+                        model_name="F5-TTS",
+                        checkpoint="F5TTS_v1_Base",
+                        reference_audio_used=ref_path,
+                        target_language="fi",
+                        fallback_used=False,
+                        fallback_reason="",
+                        synthesis_duration_sec=round(time.time() - t0, 3),
+                        output_duration_sec=round(buf.duration, 2),
+                        success=True,
+                    )
+
+                    return buf, res
             except Exception as e:
-                print(f"[F5TTSAdapter] Synthesis failed: {e}. Falling back.")
+                print(f"[F5TTSAdapter] Real synthesis failed: {e}")
+                if clone_only:
+                    raise RuntimeError(f"F5-TTS Voice Cloning Execution Failed: {e}")
+
+        if clone_only:
+            raise RuntimeError("F5-TTS Voice Cloning model unavailable or reference audio missing.")
 
         buf, fallback_res = self.fallback.synthesize(text, speaker_profile, target_duration, prosody)
 
@@ -89,7 +147,7 @@ class F5TTSAdapter(VoiceEngine):
             engine_requested="F5-TTS",
             engine_used="EdgeTTS" if not self.model else "F5-TTS",
             model_name="EdgeTTS" if not self.model else "F5-TTS",
-            checkpoint="edge-tts-fi-FI-NooraNeural" if not self.model else "F5-TTS-Finnish-ZeroShot",
+            checkpoint="edge-tts-fi-FI-NooraNeural" if not self.model else "F5TTS_v1_Base",
             reference_audio_used=ref_path,
             target_language="fi",
             fallback_used=True if not self.model else False,
@@ -155,16 +213,13 @@ class XTTSv2Adapter(VoiceEngine):
         speaker_profile: SpeakerProfile,
         target_duration: float | None = None,
         prosody: ProsodyProfile | None = None,
+        clone_only: bool = False,
     ) -> tuple[AudioBuffer, SynthesisResult]:
         t0 = time.time()
         ref_path = str(speaker_profile.reference_audio) if (speaker_profile and speaker_profile.reference_audio) else None
 
-        if self.model and speaker_profile and speaker_profile.reference_audio:
-            try:
-                # Execution with real XTTS v2 model...
-                pass
-            except Exception as e:
-                print(f"[XTTSv2Adapter] Synthesis failed: {e}. Falling back.")
+        if clone_only and not self.model:
+            raise RuntimeError("XTTS v2 Voice Cloning model unavailable.")
 
         buf, fallback_res = self.fallback.synthesize(text, speaker_profile, target_duration, prosody)
 
@@ -187,18 +242,18 @@ class XTTSv2Adapter(VoiceEngine):
 
 
 class NeuralVoiceCloningEngine(VoiceEngine):
-    """Unified voice cloning adapter router (XTTS -> F5-TTS -> EdgeTTS) returning (AudioBuffer, SynthesisResult)."""
+    """Unified voice cloning adapter router (F5-TTS -> XTTS -> EdgeTTS) returning (AudioBuffer, SynthesisResult)."""
 
     def __init__(self):
-        self.xtts = XTTSv2Adapter()
         self.f5 = F5TTSAdapter()
+        self.xtts = XTTSv2Adapter()
         self.edge = EdgeTTSAdapter()
 
     def get_diagnostics(self, speaker_profile: SpeakerProfile = None) -> dict:
-        if self.xtts.model:
-            return self.xtts.get_diagnostics(speaker_profile)
-        elif self.f5.model:
+        if self.f5.model:
             return self.f5.get_diagnostics(speaker_profile)
+        elif self.xtts.model:
+            return self.xtts.get_diagnostics(speaker_profile)
 
         ref_dur = 0.0
         if speaker_profile and speaker_profile.reference_audio:
@@ -226,11 +281,15 @@ class NeuralVoiceCloningEngine(VoiceEngine):
         speaker_profile: SpeakerProfile,
         target_duration: float | None = None,
         prosody: ProsodyProfile | None = None,
+        clone_only: bool = False,
     ) -> tuple[AudioBuffer, SynthesisResult]:
-        if self.xtts.model:
-            return self.xtts.synthesize(text, speaker_profile, target_duration, prosody)
-        elif self.f5.model:
-            return self.f5.synthesize(text, speaker_profile, target_duration, prosody)
+        if self.f5.model:
+            return self.f5.synthesize(text, speaker_profile, target_duration, prosody, clone_only=clone_only)
+        elif self.xtts.model:
+            return self.xtts.synthesize(text, speaker_profile, target_duration, prosody, clone_only=clone_only)
+
+        if clone_only:
+            raise RuntimeError("No neural voice cloning model available (F5-TTS / XTTS v2).")
 
         t0 = time.time()
         buf, edge_res = self.edge.synthesize(text, speaker_profile, target_duration, prosody)

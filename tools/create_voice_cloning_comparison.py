@@ -24,14 +24,18 @@ def run_voice_cloning_comparison():
     loudness_manager = LoudnessManager()
     engine = NeuralVoiceCloningEngine()
 
-    t = np.linspace(0, 3.0, 48000, endpoint=False, dtype=np.float32)
-    ref_samples = (0.4 * np.sin(2 * np.pi * 180 * t)).astype(np.float32)
-    ref_buf = AudioBuffer(samples=ref_samples, sample_rate=16000)
-
     test_dir = Path(__file__).resolve().parent.parent / "test_outputs"
-    test_dir.mkdir(exist_ok=True)
-    ref_path = test_dir / "comparison_speaker_ref.wav"
-    ref_path.write_bytes(ref_buf.to_wav_bytes())
+    ref_path = test_dir / "clean_speaker_ref.wav"
+    if not ref_path.exists():
+        ref_path = test_dir / "comparison_speaker_ref.wav"
+    
+    if ref_path.exists():
+        ref_buf = AudioBuffer.from_wav_file(str(ref_path))
+    else:
+        t = np.linspace(0, 3.0, 48000, endpoint=False, dtype=np.float32)
+        ref_samples = (0.4 * np.sin(2 * np.pi * 180 * t)).astype(np.float32)
+        ref_buf = AudioBuffer(samples=ref_samples, sample_rate=16000)
+        ref_path.write_bytes(ref_buf.to_wav_bytes())
 
     profile = SpeakerProfile(speaker_id="COMP_SPK", gender="male", pitch_str="+0Hz", reference_audio=str(ref_path))
     target_text = "Tämä on suomenkielinen äänikloonaustestilause vertailua varten."
