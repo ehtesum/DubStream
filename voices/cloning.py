@@ -142,22 +142,32 @@ class F5TTSAdapter(VoiceEngine):
 
         buf, fallback_res = self.fallback.synthesize(text, speaker_profile, target_duration, prosody)
 
+        fallback_reason = ""
+        if not self.model:
+            fallback_reason = "F5-TTS neural voice cloning weights unavailable"
+        elif not ref_path or not Path(ref_path).exists():
+            fallback_reason = "Speaker reference audio missing or unavailable"
+        else:
+            fallback_reason = "F5-TTS neural synthesis failed; defaulted to EdgeTTS"
+
+
         res = SynthesisResult(
             audio_buffer=buf,
             engine_requested="F5-TTS",
-            engine_used="EdgeTTS" if not self.model else "F5-TTS",
-            model_name="EdgeTTS" if not self.model else "F5-TTS",
-            checkpoint="edge-tts-fi-FI-NooraNeural" if not self.model else "F5TTS_v1_Base",
+            engine_used="EdgeTTS",
+            model_name="EdgeTTS",
+            checkpoint=fallback_res.checkpoint if fallback_res else "edge-tts-fi-FI-NooraNeural",
             reference_audio_used=ref_path,
             target_language="fi",
-            fallback_used=True if not self.model else False,
-            fallback_reason="F5-TTS neural voice cloning weights unavailable" if not self.model else "",
+            fallback_used=True,
+            fallback_reason=fallback_reason,
             synthesis_duration_sec=round(time.time() - t0, 3),
             output_duration_sec=round(buf.duration, 2),
             success=True,
         )
 
         return buf, res
+
 
 
 class XTTSv2Adapter(VoiceEngine):
@@ -226,13 +236,13 @@ class XTTSv2Adapter(VoiceEngine):
         res = SynthesisResult(
             audio_buffer=buf,
             engine_requested="XTTS_v2",
-            engine_used="EdgeTTS" if not self.model else "XTTS_v2",
-            model_name="EdgeTTS" if not self.model else "XTTS_v2",
-            checkpoint="edge-tts-fi-FI-NooraNeural" if not self.model else "tts_models/multilingual/multi-dataset/xtts_v2",
+            engine_used="EdgeTTS",
+            model_name="EdgeTTS",
+            checkpoint=fallback_res.checkpoint if fallback_res else "edge-tts-fi-FI-NooraNeural",
             reference_audio_used=ref_path,
             target_language="fi",
-            fallback_used=True if not self.model else False,
-            fallback_reason="Coqui XTTS v2 neural voice cloning weights unavailable" if not self.model else "",
+            fallback_used=True,
+            fallback_reason="Coqui XTTS v2 neural voice cloning weights unavailable" if not self.model else "XTTS v2 synthesis fallback to EdgeTTS",
             synthesis_duration_sec=round(time.time() - t0, 3),
             output_duration_sec=round(buf.duration, 2),
             success=True,

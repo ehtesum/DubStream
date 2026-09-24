@@ -84,11 +84,27 @@ class ModularTranslator:
             return text
 
     def _translate_deep(self, text: str) -> str:
+        # Tier 1: Try GoogleTranslator
         try:
             from deep_translator import GoogleTranslator
             src = self.source_lang if self.source_lang != "auto" else "auto"
             result = GoogleTranslator(source=src, target=self.target_lang).translate(text)
-            return result or text
+            if result and result.strip() and result.strip() != text.strip():
+                return result
+        except Exception:
+            pass
+
+        # Tier 2: Try MyMemoryTranslator (robust fallback for English -> Finnish)
+        try:
+            from deep_translator import MyMemoryTranslator
+            src_map = {"en": "en-US", "auto": "en-US", "fi": "fi-FI"}.get(self.source_lang, "en-US")
+            tgt_map = {"fi": "fi-FI", "en": "en-US"}.get(self.target_lang, "fi-FI")
+            result = MyMemoryTranslator(source=src_map, target=tgt_map).translate(text)
+            if result and result.strip():
+                clean_res = result.split("\n")[0].strip()
+                return clean_res
         except Exception as exc:
-            print(f"[Translator Fallback] deep_translator warning: {exc}. Returning raw text.")
-            return text
+            print(f"[Translator Fallback] MyMemoryTranslator warning: {exc}")
+
+        return text
+

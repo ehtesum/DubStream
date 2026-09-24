@@ -38,7 +38,7 @@ class FinnishTextContractor:
             (r'\bsillä tavalla\b', 'silleen'),
             (r'\bsillä tavoin\b', 'silleen'),
             (r'\bsitä paitsi\b', 'ja'),
-            (r'\biitse asiassa\b', 'tosin'),
+            (r'\bitse asiassa\b', 'tosin'),
             (r'\bminun mielestäni\b', 'mun mielestä'),
             (r'\bminun mielestä\b', 'musta'),
             (r'\bsinun mielestäsi\b', 'sun mielestä'),

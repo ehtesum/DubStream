@@ -45,7 +45,7 @@ class AudioPipeline:
     def process_chunk(self, pcm_bytes: bytes, timestamp: float, status_cb=None) -> dict:
         """Process a single audio chunk through the full orchestrator pipeline."""
         if status_cb:
-            status_cb("detecting", "🎙️ Detecting spoken audio & processing via DubStream Orchestrator...")
+            status_cb("detecting", "Detecting spoken audio & processing via DubStream Orchestrator...")
 
         audio_buf = AudioBuffer.from_pcm16_bytes(pcm_bytes, sample_rate=16000, channels=1)
         if audio_buf.duration <= 0.05:
@@ -53,7 +53,8 @@ class AudioPipeline:
                 status_cb("idle", "Waiting for spoken dialogue...")
             return {"subtitle": None, "dubbed_audio": None}
 
-        res = self.orchestrator.run_production_pipeline(audio_buf, target_lang=self.target_lang)
+        profile_obj = self._get_speaker_profile_obj()
+        res = self.orchestrator.run_production_pipeline(audio_buf, target_lang=self.target_lang, speaker_profile=profile_obj)
 
         if not res.get("subtitle"):
             if status_cb:
@@ -67,7 +68,7 @@ class AudioPipeline:
         self.subtitles.add_cue(english_text, timestamp, timestamp + duration)
 
         if status_cb:
-            status_cb("complete", f"✅ Dubbed ({res.get('diagnostics', {}).get('VOICE_ENGINE_SELECTED')})")
+            status_cb("complete", f"Dubbed ({res.get('diagnostics', {}).get('VOICE_ENGINE_SELECTED')})")
 
         return {
             "subtitle": english_text,
@@ -77,22 +78,45 @@ class AudioPipeline:
             "diagnostics": res.get("diagnostics", {}),
         }
 
+    def _get_speaker_profile_obj(self):
+        """Convert dict or object speaker_profile to SpeakerProfile instance."""
+        if isinstance(self.speaker_profile, dict):
+            from voices.profile import SpeakerProfile
+            return SpeakerProfile(
+                speaker_id="SPEAKER_00",
+                gender=self.speaker_profile.get("gender", "unknown"),
+                voice_id=self.speaker_profile.get("voice_id", "fi"),
+                pitch_str=self.speaker_profile.get("pitch_str", "+0Hz"),
+                reference_audio=self.speaker_profile.get("ref_path"),
+            )
+        return self.speaker_profile
+
+    def get_or_load_video_audio(self, video_path: str) -> np.ndarray:
+        """Load and cache 16kHz mono audio for a video file to avoid expensive repeated ffmpeg passes."""
+        if not hasattr(self, "_audio_cache"):
+            self._audio_cache = {}
+
+        if video_path in self._audio_cache:
+            return self._audio_cache[video_path]
+
+        import whisper
+        audio_data = whisper.load_audio(video_path)
+        self._audio_cache[video_path] = audio_data
+        return audio_data
+
     def process_video_batch(
         self, video_path: str, start_time: float = 0.0, max_duration: float = 120.0, progress_cb=None
     ):
         """Process a video batch slice through DubStreamOrchestrator."""
-        import whisper
-
         if progress_cb:
             progress_cb({
                 "type": "status",
                 "message": f"Loading audio buffer ({start_time/60:.1f}m - {(start_time+max_duration)/60:.1f}m)..."
             })
 
-        audio_data = whisper.load_audio(video_path)
+        audio_data = self.get_or_load_video_audio(video_path)
         sample_rate = 16000
-        full_buffer = AudioBuffer(samples=audio_data, sample_rate=sample_rate, channels=1)
-        total_audio_duration = full_buffer.duration
+        total_audio_duration = len(audio_data) / sample_rate
 
         start_sample = int(start_time * sample_rate)
         end_sample = int(min(len(audio_data), (start_time + max_duration) * sample_rate))
@@ -111,38 +135,46 @@ class AudioPipeline:
                 "message": f"Orchestrator processing batch ({slice_duration/60:.1f} mins)..."
             })
 
-        res = self.orchestrator.run_production_pipeline(slice_buffer, target_lang=self.target_lang)
+        profile_obj = self._get_speaker_profile_obj()
+        segments_results = self.orchestrator.run_production_pipeline_multi(
+            slice_buffer, target_lang=self.target_lang, speaker_profile=profile_obj
+        )
 
-        if not res.get("subtitle"):
+        if not segments_results:
             return
 
-        seg_start = round(start_time + res["sub_start"], 2)
-        seg_end = round(start_time + res["sub_end"], 2)
-        en_text = res["subtitle"]
-        fi_text = res["dubbed_text"]
-        dubbed_audio = res.get("dubbed_audio_bytes")
-        diag = res.get("diagnostics", {})
+        total_segs = len(segments_results)
+        for idx, res in enumerate(segments_results):
+            seg_start = round(start_time + res["sub_start"], 2)
+            seg_end = round(start_time + res["sub_end"], 2)
+            en_text = res["subtitle"]
+            fi_text = res["dubbed_text"]
+            dubbed_audio = res.get("dubbed_audio_bytes")
+            diag = res.get("diagnostics", {})
 
-        self.subtitles.add_cue(en_text, seg_start, seg_end)
+            self.subtitles.add_cue(en_text, seg_start, seg_end)
 
-        if progress_cb:
-            progress_cb({
-                "type": "preprocess_progress",
-                "percent": 100.0,
-                "segment_index": 1,
-                "total_segments": 1,
-                "start_time": start_time,
-                "processed_duration": round(seg_end - start_time, 2),
-                "target_duration": round(slice_duration, 2),
-                "total_video_duration": round(total_audio_duration, 2),
-                "diagnostics": diag,
-                "segment": {
-                    "id": f"{int(start_time)}_1",
-                    "start": seg_start,
-                    "end": seg_end,
-                    "english_text": en_text,
-                    "finnish_text": fi_text,
-                    "audio_b64": base64.b64encode(dubbed_audio).decode() if dubbed_audio else None,
+            pct = round(((idx + 1) / total_segs) * 100.0, 1)
+
+            if progress_cb:
+                progress_cb({
+                    "type": "preprocess_progress",
+                    "percent": pct,
+                    "segment_index": idx + 1,
+                    "total_segments": total_segs,
+                    "start_time": start_time,
+                    "processed_duration": round(seg_end - start_time, 2),
+                    "target_duration": round(slice_duration, 2),
+                    "total_video_duration": round(total_audio_duration, 2),
                     "diagnostics": diag,
-                }
-            })
+                    "segment": {
+                        "id": f"{int(start_time)}_{idx+1}",
+                        "start": seg_start,
+                        "end": seg_end,
+                        "english_text": en_text,
+                        "finnish_text": fi_text,
+                        "audio_b64": base64.b64encode(dubbed_audio).decode() if dubbed_audio else None,
+                        "diagnostics": diag,
+                    }
+                })
+

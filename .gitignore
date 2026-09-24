@@ -1,15 +1,55 @@
+# ==============================================================================
+# DubStream .gitignore
+# ==============================================================================
+
 # Python & Virtual Environments
 .venv/
 venv/
+env/
 __pycache__/
 *.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
 
-# Uploads & Media (exclude uploaded files, preserve folder structure)
+# Audio & Video Binaries (Universal)
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.webm
+*.wav
+*.mp3
+*.m4a
+*.aac
+*.flac
+*.ogg
+
+# Demo Directory Binaries (Track code/markdown, ignore heavy media)
+demo/*.mp4
+demo/*.webp
+demo/*.png
+
+# Archive Directory (Historical reports, A/B samples, and test dumps)
+archive/
+
+# Uploads & User Media (preserve folder structure)
 uploads/*
 !uploads/.gitkeep
 
-# IDEs & System files
+# Pipeline Audio Cache (preserve package files)
+cache/*
+!cache/__init__.py
+!cache/store.py
+
+# Editor & OS Metadata
 .vscode/
 .idea/
+*.swp
+*.swo
 .DS_Store
 Thumbs.db
+desktop.ini

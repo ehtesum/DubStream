@@ -151,3 +151,37 @@ class AudioBuffer:
         if not p.exists():
             raise FileNotFoundError(f"WAV file not found: {filepath}")
         return cls.from_wav_bytes(p.read_bytes())
+
+    def slice(self, start_sec: float, end_sec: float) -> "AudioBuffer":
+        """Extract a time slice from the audio buffer [start_sec, end_sec]."""
+        start_sample = max(0, int(round(start_sec * self.sample_rate)))
+        end_sample = min(self.samples.shape[-1], int(round(end_sec * self.sample_rate)))
+        if start_sample >= end_sample:
+            empty = np.zeros(0, dtype=np.float32) if self.samples.ndim == 1 else np.zeros((self.channels, 0), dtype=np.float32)
+            return AudioBuffer(samples=empty, sample_rate=self.sample_rate, channels=self.channels)
+        if self.samples.ndim == 1:
+            sliced = self.samples[start_sample:end_sample].copy()
+        else:
+            sliced = self.samples[:, start_sample:end_sample].copy()
+        return AudioBuffer(samples=sliced, sample_rate=self.sample_rate, channels=self.channels)
+
+    @classmethod
+    def from_audio_bytes(cls, audio_bytes: bytes, fallback_sr: int = 24000) -> "AudioBuffer":
+        """Decode generic audio bytes (WAV, MP3, FLAC, OGG) into an AudioBuffer using soundfile."""
+        if not audio_bytes:
+            return cls(samples=np.zeros(0, dtype=np.float32), sample_rate=fallback_sr, channels=1)
+
+        try:
+            import soundfile as sf
+            data, sr = sf.read(io.BytesIO(audio_bytes), dtype="float32")
+            if data.ndim == 2:
+                data = data.T
+            return cls(samples=data, sample_rate=sr, channels=1 if data.ndim == 1 else data.shape[0])
+        except Exception:
+            try:
+                return cls.from_wav_bytes(audio_bytes)
+            except Exception:
+                int_samples = np.frombuffer(audio_bytes, dtype=np.int16)
+                float_samples = int_samples.astype(np.float32) / 32768.0
+                return cls(samples=float_samples, sample_rate=fallback_sr, channels=1)
+

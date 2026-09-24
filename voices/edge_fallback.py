@@ -85,17 +85,11 @@ class EdgeTTSAdapter(VoiceEngine):
         finally:
             loop.close()
 
-        out_buf = AudioBuffer(samples=np.zeros(24000, dtype=np.float32), sample_rate=24000)
         if mp3_bytes and len(mp3_bytes) > 0:
-            try:
-                out_buf = AudioBuffer.from_wav_bytes(mp3_bytes)
-            except Exception:
-                try:
-                    int_samples = np.frombuffer(mp3_bytes, dtype=np.int16)
-                    float_samples = int_samples.astype(np.float32) / 32768.0
-                    out_buf = AudioBuffer(samples=float_samples, sample_rate=24000)
-                except Exception:
-                    pass
+            out_buf = AudioBuffer.from_audio_bytes(mp3_bytes, fallback_sr=24000)
+        else:
+            out_buf = AudioBuffer(samples=np.zeros(24000, dtype=np.float32), sample_rate=24000)
+
 
         t_total = time.time() - t0
         res = SynthesisResult(

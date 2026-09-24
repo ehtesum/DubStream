@@ -3,35 +3,40 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DubStream — Real-Time Movie Dubbing</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <title>DubStream — Real-Time Video Dubbing</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <header class="topbar">
     <div class="topbar-brand">
-      <span class="brand-icon">▶</span>
+      <span class="brand-icon">DS</span>
       <span class="brand-name">DubStream</span>
+      <span class="brand-badge">v2.0</span>
     </div>
-    <div class="topbar-status" id="statusBadge">Disconnected</div>
+    <div class="topbar-status disconnected" id="statusBadge">Disconnected</div>
   </header>
 
   <main class="player-layout">
     <!-- Upload panel (shown when no video loaded) -->
     <section class="upload-panel" id="uploadPanel">
       <div class="upload-dropzone" id="dropzone">
-        <div class="upload-icon">🎬</div>
-        <h2>Drop a video file here</h2>
-        <p>or click to browse — MP4, MKV, AVI, WebM supported</p>
+        <div class="upload-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+        </div>
+        <h2>Select or drop video file</h2>
+        <p>Supported containers: MP4, MKV, AVI, WebM (16kHz PCM stream processing)</p>
         <input type="file" id="fileInput" accept="video/*" hidden>
-        <button class="btn-primary" id="browseBtn">Browse Files</button>
+        <button class="btn-primary" id="browseBtn">Browse Video Files</button>
         
         <div class="upload-progress-container" id="uploadProgressContainer" style="display:none;">
           <div class="upload-progress-bar">
             <div class="upload-progress-fill" id="uploadProgressFill" style="width: 0%;"></div>
           </div>
-          <span class="upload-progress-text" id="uploadProgressText">Uploading video: 0%</span>
+          <span class="upload-progress-text" id="uploadProgressText">Uploading: 0%</span>
         </div>
       </div>
     </section>
@@ -46,24 +51,24 @@
       </div>
 
       <!-- Stage 1: Speaker Voice Profile Extraction Card -->
-      <div class="batch-progress-card voice-card" id="voiceProgressCard">
+      <div class="batch-progress-card voice-card" id="voiceProgressCard" style="display:none;">
         <div class="batch-progress-header">
-          <span class="batch-title">🎙️ Stage 1: Speaker Voice Profile & Tone Extraction:</span>
-          <span class="batch-status" id="voiceStatusText">Scanning vocal pitch & energy...</span>
+          <span class="batch-title">Stage 1: Speaker Voice Profiling &amp; Pitch Extraction</span>
+          <span class="batch-status" id="voiceStatusText">Extracting vocal reference...</span>
         </div>
         <div class="batch-bar-container">
           <div class="batch-bar-fill voice-fill" id="voiceBarFill" style="width: 0%;"></div>
         </div>
         <div class="batch-info-footer">
           <span id="voicePercentText">0.0%</span>
-          <span id="voiceProfileBadgeText">Voice Analysis Active</span>
+          <span id="voiceProfileBadgeText">Vocal analysis initialized</span>
         </div>
       </div>
 
       <!-- Stage 2: Dubbing & Subtitle Synthesis Progress Card -->
-      <div class="batch-progress-card" id="batchProgressCard">
+      <div class="batch-progress-card" id="batchProgressCard" style="display:none;">
         <div class="batch-progress-header">
-          <span class="batch-title">⚡ Stage 2: Tone-Matched Dubbing & Subtitle Synthesis:</span>
+          <span class="batch-title">Stage 2: Neural Dubbing &amp; WebVTT Alignment</span>
           <span class="batch-status" id="batchStatusText">Ready to start fast-start buffer</span>
         </div>
         <div class="batch-bar-container">
@@ -77,30 +82,30 @@
 
       <div class="controls-bar">
         <div class="control-group">
-          <label>Source Audio</label>
-          <div class="badge-setting">Auto-Detect Spoken Audio 🎙️</div>
+          <label>Source</label>
+          <div class="badge-setting">Auto-Detect (VAD)</div>
         </div>
 
         <div class="control-group">
-          <label>Output Dub Target</label>
-          <div class="badge-setting badge-target">Finnish 🇫🇮</div>
+          <label>Target Language</label>
+          <div class="badge-setting">Finnish (fi-FI)</div>
         </div>
 
-        <button class="btn-primary" id="startPreprocessBtn">Generate Subtitles & Dubbing</button>
+        <button class="btn-primary" id="startPreprocessBtn">Start Dubbing Pipeline</button>
 
         <div class="control-group volume-group">
-          <label>Original Volume</label>
-          <input type="range" id="origVolume" min="0" max="100" value="20">
+          <label>Original Track</label>
+          <input type="range" id="origVolume" min="0" max="100" value="20" title="Original audio volume">
         </div>
 
         <div class="control-group volume-group">
-          <label>Finnish Dub Volume 🔊</label>
-          <input type="range" id="dubVolume" min="0" max="100" value="80">
+          <label>Dubbed Track</label>
+          <input type="range" id="dubVolume" min="0" max="100" value="80" title="Finnish dubbed volume">
         </div>
       </div>
 
       <div class="transcript-panel">
-        <h3>Live Transcript & English Subtitles</h3>
+        <h3>Synchronized Subtitle Feed &amp; Cue History</h3>
         <div class="transcript-log" id="transcriptLog"></div>
       </div>
     </section>
@@ -147,7 +152,6 @@
       }
     });
 
-    // Function to unlock HTML5 audio playback for browser autoplay policies
     function unlockAudio() {
       if (audioUnlocked) return;
       audioUnlocked = true;
@@ -187,6 +191,7 @@
       progressContainer.style.display = "block";
       browseBtn.disabled = true;
       statusBadge.textContent = "Uploading: 0%";
+      statusBadge.className = "topbar-status disconnected";
 
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "/upload", true);
@@ -195,7 +200,7 @@
         if (e.lengthComputable) {
           const percent = Math.round((e.loaded / e.total) * 100);
           progressFill.style.width = percent + "%";
-          progressText.textContent = `Uploading video: ${percent}%`;
+          progressText.textContent = `Uploading: ${percent}%`;
           statusBadge.textContent = `Uploading: ${percent}%`;
         }
       };
@@ -207,30 +212,28 @@
             loadedFilename = data.filename;
             videoPlayer.src = data.url;
             uploadPanel.style.display = "none";
-            videoPanel.style.display = "block";
-            statusBadge.textContent = "Video loaded";
+            videoPanel.style.display = "flex";
+            statusBadge.textContent = "Video Loaded";
+            statusBadge.className = "topbar-status";
             initWebSocketAndPreprocess();
           } else {
-            statusBadge.textContent = "Upload failed";
+            statusBadge.textContent = "Upload Failed";
+            statusBadge.className = "topbar-status error";
             alert("Upload error: " + (data.error || "Unknown error"));
           }
         } else {
-          statusBadge.textContent = "Upload error";
+          statusBadge.textContent = "Upload Error";
+          statusBadge.className = "topbar-status error";
         }
       };
 
       xhr.onerror = () => {
-        statusBadge.textContent = "Network upload error";
+        statusBadge.textContent = "Network Error";
+        statusBadge.className = "topbar-status error";
       };
 
       xhr.send(form);
     }
-
-    // -- Volume control --
-    origVolume.addEventListener("input", () => {
-      videoPlayer.volume = origVolume.value / 100;
-    });
-    videoPlayer.volume = 0.2;
 
     // -- WebSocket batch pre-processing --
     startPreprocessBtn.addEventListener("click", () => {
@@ -247,7 +250,8 @@
       ws = new WebSocket(`${proto}//${location.host}/ws/dub`);
 
       ws.onopen = () => {
-        statusBadge.textContent = "Connected";
+        statusBadge.textContent = "WebSocket Connected";
+        statusBadge.className = "topbar-status";
         ws.send(JSON.stringify({ type: "config", source_lang: "auto", target_lang: "fi" }));
         if (loadedFilename) startPreprocess(loadedFilename);
       };
@@ -266,24 +270,27 @@
           $("#voiceBarFill").style.width = "100%";
           $("#voicePercentText").textContent = "100%";
           const p = msg.profile || {};
-          $("#voiceStatusText").textContent = `✅ Profile Ready: ${p.gender === 'male' ? 'Male Voice 👨' : 'Female Voice 👩'} (${p.pitch_hz} Hz, Offset ${p.pitch_str})`;
+          const genderStr = p.gender === "male" ? "Male Voice" : "Female Voice";
+          $("#voiceStatusText").textContent = `Profile Ready: ${genderStr} (${p.pitch_hz} Hz, ${p.pitch_str || "normal"})`;
           $("#voiceProfileBadgeText").textContent = `Pitch: ${p.pitch_hz} Hz`;
         } else if (msg.type === "preprocess_progress") {
           handlePreprocessProgress(msg);
         } else if (msg.type === "preprocess_fast_start_ready") {
-          batchStatusText.textContent = "🚀 Fast-Start Buffer Ready (~2m)! Playing video while background loading...";
+          batchStatusText.textContent = "Fast-Start Buffer Ready (120s). Video playing with background buffer prefetch.";
           batchBarFill.style.width = "100%";
           videoPlayer.play().catch(() => {});
         } else if (msg.type === "preprocess_all_complete") {
-          batchStatusText.textContent = "🎉 Full video subtitles & dubbing complete!";
+          batchStatusText.textContent = "Pipeline complete: All dialogue segments dubbed & synchronized.";
         } else if (msg.type === "error") {
           batchStatusText.textContent = "Error: " + msg.message;
           statusBadge.textContent = "Error: " + msg.message;
+          statusBadge.className = "topbar-status error";
         }
       };
 
       ws.onclose = () => {
         statusBadge.textContent = "Disconnected";
+        statusBadge.className = "topbar-status disconnected";
       };
     }
 
@@ -291,11 +298,11 @@
       preprocessedSegments = [];
       playedSegmentIds.clear();
       transcriptLog.innerHTML = "";
-      $("#voiceProgressCard").style.display = "block";
-      $("#batchProgressCard").style.display = "block";
+      $("#voiceProgressCard").style.display = "flex";
+      $("#batchProgressCard").style.display = "flex";
       $("#voiceBarFill").style.width = "0%";
       $("#voicePercentText").textContent = "0.0%";
-      $("#voiceStatusText").textContent = "🎙️ Stage 1: Extracting speaker reference vocal clip...";
+      $("#voiceStatusText").textContent = "Stage 1: Extracting speaker reference vocal clip...";
       batchStatusText.textContent = "Waiting for Stage 1 voice profile...";
       batchBarFill.style.width = "0%";
       batchPercentText.textContent = "0.0%";
@@ -377,9 +384,14 @@
     function addTranscriptLog(enText, start, fiText) {
       const entry = document.createElement("div");
       entry.className = "transcript-entry";
-      entry.innerHTML = `<span class="ts">${formatTime(start)}</span> <span class="badge-en">[EN]</span> ${enText} <br><span class="fi-sub">🇫🇮 ${fiText}</span>`;
+      entry.innerHTML = `<span class="ts">${formatTime(start)}</span><span class="badge-en">EN</span> ${escapeHtml(enText)}<div class="fi-sub"><span class="badge-en" style="color:#0369a1;background:#e0f2fe;border-color:#bae6fd;">FI</span> ${escapeHtml(fiText)}</div>`;
       transcriptLog.appendChild(entry);
       transcriptLog.scrollTop = transcriptLog.scrollHeight;
+    }
+
+    function escapeHtml(str) {
+      if (!str) return "";
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
 
     function playDubbedAudio(b64Data) {
@@ -395,7 +407,7 @@
         const bytes = new Uint8Array(raw.length);
         for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
 
-        const blob = new Blob([bytes], { type: "audio/mpeg" });
+        const blob = new Blob([bytes], { type: "audio/wav" });
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
         audio.volume = dubVolume.value / 100;

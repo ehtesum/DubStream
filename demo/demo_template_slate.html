@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DubStream • Real-Time Audio Translation &amp; Dubbing</title>
+<style>
+  :root {
+    --bg-app: #0f172a;          /* Slate 900 */
+    --bg-surface: #1e293b;      /* Slate 800 */
+    --bg-surface-elevated: #334155; /* Slate 700 */
+    --bg-terminal: #020617;     /* Slate 950 */
+    --border-color: #334155;    /* Slate 700 */
+    --border-subtle: #1e293b;
+    --text-main: #f8fafc;       /* Slate 50 */
+    --text-muted: #94a3b8;      /* Slate 400 */
+    --text-dim: #64748b;        /* Slate 500 */
+    --primary-blue: #2563eb;    /* Clean standard engineering blue */
+    --primary-hover: #1d4ed8;
+    --status-green: #10b981;    /* Standard emerald */
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg-app);
+    color: var(--text-main);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  /* Standard Application Top Navigation */
+  .navbar {
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-color);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .nav-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .app-title {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .app-badge {
+    background: #0f172a;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-family: var(--font-mono);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .nav-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .status-indicator {
+    width: 8px;
+    height: 8px;
+    background: var(--status-green);
+    border-radius: 50%;
+  }
+
+  /* Main Two-Column Engineering Workspace */
+  .workspace {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 16px;
+    padding: 16px 20px;
+    max-width: 1440px;
+    width: 100%;
+    margin: 0 auto;
+  }
+
+  /* Left Column: Player & Configuration Controls */
+  .left-col {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  /* Video Viewport */
+  .video-panel {
+    background: #000;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+    aspect-ratio: 16 / 9;
+    display: flex;
+    flex-direction: column;
+  }
+  .video-feed {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: brightness(0.9);
+  }
+
+  /* Realistic Video Subtitles (Industry standard broadcast subtitle style) */
+  .subtitle-overlay {
+    position: absolute;
+    bottom: 48px;
+    left: 20px;
+    right: 20px;
+    text-align: center;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .sub-fi {
+    background: rgba(0, 0, 0, 0.85);
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 2px;
+    letter-spacing: 0.1px;
+    max-width: 90%;
+  }
+  .sub-en {
+    background: rgba(0, 0, 0, 0.7);
+    color: #cbd5e1;
+    font-size: 12.5px;
+    padding: 2px 8px;
+    border-radius: 2px;
+    max-width: 90%;
+  }
+
+  /* Native-style Video Transport Bar */
+  .video-transport {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(15, 23, 42, 0.95);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .play-pause-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-main);
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+  }
+  .play-pause-btn:hover { background: var(--bg-surface-elevated); }
+  .progress-track {
+    flex: 1;
+    height: 5px;
+    background: #334155;
+    border-radius: 3px;
+    position: relative;
+    cursor: pointer;
+  }
+  .progress-fill {
+    width: 32%;
+    height: 100%;
+    background: var(--primary-blue);
+    border-radius: 3px;
+  }
+  .time-display {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  /* Audio Pipeline Stream Settings */
+  .control-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .card-header-simple {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .settings-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  .param-box {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .param-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+  .param-value {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-main);
+  }
+
+  .sliders-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding-top: 4px;
+  }
+  .slider-unit label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+  .slider-unit input[type="range"] {
+    width: 100%;
+    height: 4px;
+    accent-color: var(--primary-blue);
+    background: #334155;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+
+  /* Right Column: Terminal Logs & Subtitle Cues */
+  .right-col {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  /* Server Console / Bash Output */
+  .terminal-box {
+    background: var(--bg-terminal);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    height: 290px;
+    overflow: hidden;
+  }
+  .term-header {
+    background: #090d16;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .term-logs {
+    flex: 1;
+    padding: 10px 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.6;
+    overflow-y: auto;
+    color: #e2e8f0;
+  }
+  .log-row {
+    display: flex;
+    gap: 8px;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .log-time { color: var(--text-dim); flex-shrink: 0; }
+  .tag-info { color: #38bdf8; flex-shrink: 0; }
+  .tag-stt  { color: #a78bfa; flex-shrink: 0; }
+  .tag-nmt  { color: #34d399; flex-shrink: 0; }
+  .tag-tts  { color: #fbbf24; flex-shrink: 0; }
+  .tag-ws   { color: #94a3b8; flex-shrink: 0; }
+
+  /* Subtitle Cues Table */
+  .cues-box {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    max-height: 210px;
+    overflow: hidden;
+  }
+  .cues-header {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    display: flex;
+    justify-content: space-between;
+  }
+  .cues-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .cue-row {
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .cue-row:last-child { border-bottom: none; }
+  .cue-meta {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+  .cue-fi {
+    color: #f1f5f9;
+    font-size: 12px;
+  }
+  .cue-en {
+    color: #64748b;
+    font-size: 11px;
+  }
+
+  /* Utilitarian Footer Banner */
+  .footer-status-bar {
+    grid-column: 1 / -1;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 8px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .footer-status-bar strong {
+    color: var(--text-main);
+  }
+</style>
+</head>
+<body>
+
+<!-- Standard Navigation Bar -->
+<header class="navbar">
+  <div class="nav-left">
+    <div class="app-title">
+      <span>DubStream</span>
+      <span class="app-badge">v1.0.0-rc</span>
+    </div>
+    <span style="color: #475569;">|</span>
+    <span style="font-size: 12px; color: var(--text-dim);">Real-Time Media Dubbing Pipeline (Whisper + NMT + edge-tts)</span>
+  </div>
+  <div class="nav-status">
+    <span class="status-indicator"></span>
+    <span>WebSocket Active • 127.0.0.1:5000</span>
+  </div>
+</header>
+
+<!-- Main Workspace Grid -->
+<main class="workspace">
+  <!-- Left Side: Player & Control Parameters -->
+  <section class="left-col">
+    <!-- Video Player Frame -->
+    <div class="video-panel">
+      <img src="https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?auto=format&fit=crop&w=1200&q=80" alt="Video Frame" class="video-feed">
+      
+      <!-- Subtitle Overlay (Clean Cinema Subtitles) -->
+      <div class="subtitle-overlay">
+        <div class="sub-fi" id="subFi">"Kuuntele minua, emme voi jättää etuvartioasemaa taakse."</div>
+        <div class="sub-en" id="subEn">"Listen to me, we cannot leave the outpost behind."</div>
+      </div>
+
+      <!-- Player Scrub Bar -->
+      <div class="video-transport">
+        <button class="play-pause-btn" id="playBtn" onclick="toggleStream()">
+          <span id="btnIcon">||</span>
+        </button>
+        <div class="progress-track">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="time-display" id="timeDisplay">00:08 / 02:15</div>
+      </div>
+    </div>
+
+    <!-- Processing Controls & Configuration -->
+    <div class="control-card">
+      <div class="card-header-simple">
+        <span>Pipeline Configuration</span>
+        <span style="font-family: monospace; font-size: 11px;">Buffer: 114ms</span>
+      </div>
+
+      <div class="settings-grid">
+        <div class="param-box">
+          <span class="param-label">Input Source</span>
+          <span class="param-value">PCM 16kHz / Mono</span>
+        </div>
+        <div class="param-box">
+          <span class="param-label">STT Model</span>
+          <span class="param-value">Whisper base.en</span>
+        </div>
+        <div class="param-box">
+          <span class="param-label">Target Voice</span>
+          <span class="param-value">fi-FI-HarriNeural</span>
+        </div>
+      </div>
+
+      <div class="sliders-row">
+        <div class="slider-unit">
+          <label><span>Original Audio Track</span><span id="origVolLabel">20%</span></label>
+          <input type="range" min="0" max="100" value="20" id="origVol" oninput="document.getElementById('origVolLabel').innerText = this.value + '%'">
+        </div>
+        <div class="slider-unit">
+          <label><span>Finnish Dubbed Track</span><span id="dubVolLabel">85%</span></label>
+          <input type="range" min="0" max="100" value="85" id="dubVol" oninput="document.getElementById('dubVolLabel').innerText = this.value + '%'">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Right Side: Server Terminal & Subtitle Cue History -->
+  <section class="right-col">
+    <!-- Server Console -->
+    <div class="terminal-box">
+      <div class="term-header">
+        <span>stdout — python app.py</span>
+        <span>PID 19842</span>
+      </div>
+      <div class="term-logs" id="termLogs">
+        <div class="log-row"><span class="log-time">11:58:01</span><span class="tag-info">[INIT]</span> AudioPipeline initialized. Models loaded into VRAM.</div>
+        <div class="log-row"><span class="log-time">11:58:02</span><span class="tag-ws">[WS]</span>   Connection accepted: /ws/dub (session: e4f981)</div>
+        <div class="log-row"><span class="log-time">11:58:04</span><span class="tag-stt">[STT]</span>  Chunk #1: "Listen to me, we cannot leave the outpost behind." (138ms)</div>
+        <div class="log-row"><span class="log-time">11:58:04</span><span class="tag-nmt">[NMT]</span>  Translated: "Kuuntele minua, emme voi jättää etuvartioasemaa taakse." (42ms)</div>
+        <div class="log-row"><span class="log-time">11:58:05</span><span class="tag-tts">[TTS]</span>  Synthesized 2.4s audio via edge-tts (latency=114ms)</div>
+        <div class="log-row"><span class="log-time">11:58:07</span><span class="tag-stt">[STT]</span>  Chunk #2: "The snow will choke the engine cooling if we don't move." (145ms)</div>
+        <div class="log-row"><span class="log-time">11:58:07</span><span class="tag-nmt">[NMT]</span>  Translated: "Lumi tukkii moottorin jäähdytyksen, jos emme siirry." (39ms)</div>
+        <div class="log-row"><span class="log-time">11:58:08</span><span class="tag-tts">[TTS]</span>  Synthesized 2.8s audio via edge-tts (latency=118ms)</div>
+      </div>
+    </div>
+
+    <!-- Subtitle Cues History Table -->
+    <div class="cues-box">
+      <div class="cues-header">
+        <span>Generated Subtitle Cues</span>
+        <span style="font-family: monospace; font-size: 10px;">Format: WebVTT</span>
+      </div>
+      <div class="cues-list" id="cuesList">
+        <div class="cue-row">
+          <div class="cue-meta"><span>Cue #1</span><span>00:00:01.200 -&gt; 00:00:03.600</span></div>
+          <div class="cue-fi">Kuuntele minua, emme voi jättää etuvartioasemaa taakse.</div>
+          <div class="cue-en">Listen to me, we cannot leave the outpost behind.</div>
+        </div>
+        <div class="cue-row">
+          <div class="cue-meta"><span>Cue #2</span><span>00:00:04.100 -&gt; 00:00:06.850</span></div>
+          <div class="cue-fi">Lumi tukkii moottorin jäähdytyksen, jos emme siirry.</div>
+          <div class="cue-en">The snow will choke the engine cooling if we don't move.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Production Notification Banner -->
+  <div class="footer-status-bar">
+    <div>
+      <strong>DubStream • Working live demo coming soon to web</strong>
+      <span style="color: var(--text-dim); margin-left: 8px;">(Cloud deployment with automated GPU worker allocation in progress)</span>
+    </div>
+    <div style="font-family: var(--font-mono); font-size: 11px;">
+      github.com/ehtesum/DubStream
+    </div>
+  </div>
+</main>
+
+<script>
+  const dialogueEvents = [
+    {
+      time: "00:00:07.400 -> 00:00:09.950",
+      en: "Prepare the emergency transmitter on frequency 121.5.",
+      fi: "Valmistele hätälähetin taajuudelle 121.5.",
+      timer: "00:10 / 02:15",
+      sttMs: "131ms",
+      ttsMs: "109ms"
+    },
+    {
+      time: "00:00:10.500 -> 00:00:13.800",
+      en: "Signal confirmed. We have twenty minutes before the storm hits.",
+      fi: "Signaali vahvistettu. Meillä on kaksikymmentä minuuttia ennen myrskyä.",
+      timer: "00:14 / 02:15",
+      sttMs: "148ms",
+      ttsMs: "122ms"
+    }
+  ];
+
+  let eventIdx = 0;
+  setInterval(() => {
+    const item = dialogueEvents[eventIdx % dialogueEvents.length];
+    eventIdx++;
+
+    // Subtitle updates
+    document.getElementById('subFi').innerText = `"${item.fi}"`;
+    document.getElementById('subEn').innerText = `"${item.en}"`;
+    document.getElementById('timeDisplay').innerText = item.timer;
+
+    // Append cue to table
+    const cueList = document.getElementById('cuesList');
+    const newCue = document.createElement('div');
+    newCue.className = 'cue-row';
+    newCue.innerHTML = `
+      <div class="cue-meta"><span>Cue #${eventIdx + 2}</span><span>${item.time}</span></div>
+      <div class="cue-fi">${item.fi}</div>
+      <div class="cue-en">${item.en}</div>
+    `;
+    cueList.appendChild(newCue);
+    cueList.scrollTop = cueList.scrollHeight;
+
+    // Append log to terminal
+    const term = document.getElementById('termLogs');
+    const now = new Date().toTimeString().split(' ')[0];
+    
+    const r1 = document.createElement('div');
+    r1.className = 'log-row';
+    r1.innerHTML = `<span class="log-time">${now}</span><span class="tag-stt">[STT]</span>  Chunk #${eventIdx + 2}: "${item.en}" (${item.sttMs})`;
+    term.appendChild(r1);
+
+    const r2 = document.createElement('div');
+    r2.className = 'log-row';
+    r2.innerHTML = `<span class="log-time">${now}</span><span class="tag-nmt">[NMT]</span>  Translated: "${item.fi}"`;
+    term.appendChild(r2);
+
+    const r3 = document.createElement('div');
+    r3.className = 'log-row';
+    r3.innerHTML = `<span class="log-time">${now}</span><span class="tag-tts">[TTS]</span>  Synthesized audio segment (latency=${item.ttsMs})`;
+    term.appendChild(r3);
+
+    term.scrollTop = term.scrollHeight;
+  }, 3600);
+
+  let isPlaying = true;
+  function toggleStream() {
+    isPlaying = !isPlaying;
+    const btn = document.getElementById('btnIcon');
+    if (isPlaying) {
+      btn.innerText = '||';
+    } else {
+      btn.innerText = '>';
+    }
+  }
+</script>
+
+</body>
+</html>

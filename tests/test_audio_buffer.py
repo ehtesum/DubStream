@@ -54,6 +54,22 @@ class TestAudioBuffer(unittest.TestCase):
         self.assertEqual(imported_buf.channels, 1)
         self.assertAlmostEqual(imported_buf.duration, 1.0, places=2)
 
+    def test_slice(self):
+        samples = np.linspace(0.0, 1.0, 16000, dtype=np.float32)
+        buf = AudioBuffer(samples=samples, sample_rate=16000, channels=1)
+        sliced = buf.slice(0.25, 0.75)
+        self.assertEqual(sliced.sample_rate, 16000)
+        self.assertAlmostEqual(sliced.duration, 0.5, places=2)
+        self.assertEqual(len(sliced.samples), 8000)
+
+    def test_from_audio_bytes(self):
+        samples = np.full(16000, 0.1, dtype=np.float32)
+        buf = AudioBuffer(samples=samples, sample_rate=16000, channels=1)
+        wav_bytes = buf.to_wav_bytes()
+        decoded = AudioBuffer.from_audio_bytes(wav_bytes)
+        self.assertAlmostEqual(decoded.duration, 1.0, places=2)
+
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -141,11 +141,13 @@ def dub_stream(ws):
                         max_duration=120.0,
                         progress_cb=on_progress,
                     )
-                    ws.send(json.dumps({"type": "preprocess_fast_start_ready", "duration": 120.0}))
+                    try:
+                        ws.send(json.dumps({"type": "preprocess_fast_start_ready", "duration": 120.0}))
+                    except Exception:
+                        pass
 
                     # Stage 3: Background Continuous Streaming (5-minute chunks = 300s)
-                    import whisper
-                    audio = whisper.load_audio(str(video_path))
+                    audio = pipeline.get_or_load_video_audio(str(video_path))
                     total_duration = len(audio) / 16000
                     current_start = 120.0
 
@@ -158,7 +160,11 @@ def dub_stream(ws):
                         )
                         current_start += 300.0
 
-                    ws.send(json.dumps({"type": "preprocess_all_complete"}))
+                    try:
+                        ws.send(json.dumps({"type": "preprocess_all_complete"}))
+                    except Exception:
+                        pass
+
                 except Exception as exc:
                     try:
                         ws.send(json.dumps({"type": "error", "message": str(exc)}))
