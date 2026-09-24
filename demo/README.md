@@ -8,12 +8,12 @@ This directory contains production demo video recordings, high-resolution snapsh
 
 | File Name | Format | Description |
 | :--- | :--- | :--- |
-| **`DubStream_Demo_Recording.mp4`** | MP4 (H.264) | **Primary demonstration video** (clean white `#ffffff` UI, in-player transport bar, VLC-playable) |
-| **`DubStream_Demo_Inside_Bar_Only.mp4`** | MP4 (H.264) | Identical to primary demonstration video |
-| **`DubStream_Demo_Previous_White.mp4`** | MP4 (H.264) | Previous white theme video (includes bottom audio mixer track sliders) |
-| **`DubStream_Demo_Previous_Slate.mp4`** | MP4 (H.264) | Previous dark slate engineering theme video |
-| **`DubStream_Demo_Recording.webp`** | Animated WebP | Lightweight browser-playable recording |
-| **`DubStream_Demo_Screenshot.png`** | PNG (High-Res) | Static snapshot for presentation slides or post thumbnails |
+| **`DubStream_Demo_Previous_White.mp4`** | MP4 (H.264) | **Full Detailed White Demo** (10.0s, 30 fps, includes Pipeline Specifications grid, dual audio track volume mixer sliders, WebVTT cue list, and terminal) |
+| **`DubStream_Demo_Recording.mp4`** | MP4 (H.264) | **Primary demonstration video** (10.0s, 30 fps, synchronized full detailed interface) |
+| **`DubStream_Demo_Inside_Bar_Only.mp4`** | MP4 (H.264) | Minimalist layout variant with player transport bar only (10.0s) |
+| **`DubStream_Demo_Previous_Slate.mp4`** | MP4 (H.264) | Dark slate engineering theme demonstration video (9.0s) |
+| **`DubStream_Demo_Recording.webp`** | Animated WebP | 10.0s browser-playable animated recording with all 89 keyframes |
+| **`DubStream_Demo_Screenshot.png`** | PNG (High-Res) | Static snapshot capturing full interface specifications and metrics |
 
 ---
 
